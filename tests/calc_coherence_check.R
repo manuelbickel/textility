@@ -131,27 +131,14 @@ create_wiwj_asym_stm <- function(idxs) {
 
 wiwj <- create_wiwj_asym(idxs_T4)
 wiwj_stm <- create_wiwj_asym_stm(idxs_T4)
-#significant differences
+#significant differences - e.g., 2 never appears as l in wiwj_stm, but it does in wiwj
 wiwj
 wiwj_stm
 
-#assuming that the order of indices from high to low probability is
-create_wiwj_asym(c(5,3,1))
-#       wi wj
-# [1,]  3  5
-# [2,]  1  5
-# [3,]  1  3
-create_wiwj_asym_stm(c(5,3,1))
-#   m l
-# 4 5 3
-# 7 5 1
-# 8 3 1
-
 #not sure what is correct, now.
 #Original UMass says SUM(from m=2 to M)SUM(from l=1 to m-1)
-#Does above function create_wiwj_asym do this, or is there something wrong in the function.
-#If the function is correct stm package implementation is wrong?
+#Is something wrong in create_wiwj_asym or does it actually implement the original UMass?
 
-
-#this step is needed to be able to use CalcProbCoh from textminer, which requires colnames and sparseMatrix
-colnames(beta) <- fitted@terms
+#----->maybe also a conditial check in the calculation functions is required
+#concerning which of the probability values is higher/lower
+#to finally select the suitable combination
