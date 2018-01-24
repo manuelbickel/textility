@@ -1,13 +1,13 @@
 #' A wrapper function for various preprocessing options for strings
 #'
-#' @param x A \{character} vector.
+#' @param x A \code{character} vector.
 #' @param force_encoding The encdoding to be forced on the string.
 #' @param alltolower Turn all letters to lower case.
-#' @param erase_patterns Fixed (non-regex) patterns to be erased from text as is.
+#' @param erase_patterns Fixed non-regex patterns to be erased from text as is.
 #'                       The \code{force_encoding} and \code{tolower} settings are applied on these patterns before matching for removal.
-#' @param token_exclude_length Remove tokens that have specified number of characters or less (enclodes by word boundaries).
+#' @param token_exclude_length Remove tokens that have specified number of characters or less, enclosed by word boundaries.
 #' @param rm_diacritics Turn diacritics into their ASCII pendnant.
-#' @param replace_dashes_hyphens_by Various forms of dashes and hyphens (long dash, dahs, hyphen, etc.) defined in Unicode table are replaced by the sepcified fixed pattern.
+#' @param replace_dashes_hyphens_by Various forms of dashes and hyphens, e.g., long dash, dash, hyphen, etc., defined in Unicode table are replaced by the sepcified fixed pattern.
 #' @param rm_roman_numeral_listing Erase all brackets and their content if bracket includes a combination of i,v, and x.
 #'                                 There are also higher number that require M and C, however, functions aims at listing of lower numbers
 #'                                 usually used in reports. More sophisticated regex replacements possible with below parameter.

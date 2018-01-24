@@ -8,11 +8,11 @@
 #'
 #' Documentation still to be updated, please check the code in the meantime.
 #'
-#' @param docs The documents to be processed in form of a \{character} vector.
+#' @param docs The documents to be processed in form of a \code{character} vector. Each document is processed separately, hence no shared acronyms are assumed.
 #' @param remove_replaced_acr By default TRUE. If an acronym was identified and replaced, the acronym itself is deleted.
 #' @param remove_all_bracketed_acr By default TRUE. All acronyms in brackets are removed. The identification pattern is \code{([A-Z][A-Za-z]*[A-Z]s?\\)}.
 #'
-#' @return
+#' @return The documents wit acronyms replaced.
 #' @export
 #'
 #' @examples
