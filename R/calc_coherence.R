@@ -13,11 +13,11 @@
 #'
 #' @return A \code{data.table} showing the coherence scores for different measures for each topic.
 #'         For comparison of various models results need to be averaged over topics.
-#' @export
 #'
 #' @examples
 #'
-#'
+#' @export
+
 
 calc_coherence <-  function(dtm, beta, n = 10) {
   #Credits:
