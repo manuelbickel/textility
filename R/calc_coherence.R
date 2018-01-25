@@ -107,7 +107,8 @@ calc_coherence <-  function(dtm, beta, n = 10) {
       dtm_topwords[dtm_topwords>0] <- 1
       tcm <- Matrix::t(dtm_topwords) %*% dtm_topwords
     } else {
-      stop("Please provide dtm as simple triplet matrix (slam package) or sparse matrix (Matrix package).")
+      dtm_topwords[dtm_topwords>0] <- 1
+      tcm <- t(dtm_topwords) %*% dtm_topwords
     }
 
     #create list with entries that each contains the idxs of the top words
@@ -146,8 +147,8 @@ calc_coherence <-  function(dtm, beta, n = 10) {
     topic_coherence[,tcm_idxs_topwords := split(match(as.vector(beta), topwords_unique)
                                                 , rep(1:ncol(beta), each=n))]
   } else {
-    stop("Please provide beta as numeric matrix (word distribution over topics, each row is a topic)
-         or character matrix (top terms per topic, each column is a topic).")
+     dtm_topwords[dtm_topwords>0] <- 1
+     tcm <- t(dtm_topwords) %*% dtm_topwords
   }
   #FUNCTIONS TO CREATE SETS OF wi/wj
   #following approach was taken from textmineR package and turned into generalized function
