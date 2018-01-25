@@ -1,7 +1,32 @@
 
-#####STILL A WORKING VERSION - Results may be flawed
+#####STILL A WORKING VERSION - Results may be erroneous
 
-#' Calculation of various coherence measures for topic models based on LDA algorithm
+
+#NOTE to my comment to text2vec #229
+#I think I solved the issue concerning creation of wi/wj subsets, results now are in line with stm
+
+#GENERAL LOGIC
+#1 get top N words per topic
+#2 reduce dtm to top N word space
+#3 create tcm showing document co-occurence of top N words (binarize dtm, do cross product)
+#(3b - divide tcm by ndocs gives probability)
+#(since some Coherence measures, e.g., UMass originally use counts, the division is skipped and done at later step)
+#4 calculate coherence for each topic (following steps 4.x are done individually for each topic)
+#4.1 reduce tcm to top n words
+#4.2 create pairs of indices of wi / wj to be used for coherence calculation
+#    Umass uses ASYMmetric combination: SUM(from m=2 to N)SUM(from l=1 to m-1) ...P(wm,wl)...
+#    other measures use SYMmetric combination: SUM(from i=1 to N-1)SUM(from j=i+1 to N) ...P(wi,wj)...
+#4.3 get values for all wiwj pairs from tcm and calculate coherence
+#     e.g. pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
+#4.4 aggregate the results via mean over number of wiwj pairs (original UMass uses counts and sum)
+
+
+#ADDITIONAL OPTIONS
+#arise e.g., (i) from using word vectors for wi / wj instead of single words
+# or (ii) using a sliding window over a corpus (usually external, e.g. Wikipedia) to get counts of document co-occurrence of top N words
+
+
+#' Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)
 #'
 #' @param dtm The term document matrix, may be a \code{sparseMatrix} or \code{simple_triplet_matrix}.
 #' @param beta Either the raw distribution of word probabilities (columnnames = words, entries = probabiliities) over topics (each row = Topic), e.g.,
@@ -44,7 +69,7 @@ calc_coherence <-  function(dtm, beta, n = 10) {
   #2use of external corpus or at least context vectors
   #3larger subsets thatn S_one_one, such as, S_one_any, etc.
 
-  #regarding TBD - #2 something like the following might be used to contsruct the corpus tcm
+  #regarding TBD - #2 something like the following might be used to construct a corpus based tcm
   # library(text2vec)
   # #just an example for demonstration
   # corpus <- c(paste(letters, collapse = " "), paste(c("a", letters, "b", letters), collapse = " "))
@@ -64,34 +89,8 @@ calc_coherence <-  function(dtm, beta, n = 10) {
   #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
 
 
-  #cover the case of beta coming in form of ordered words per topic (as in text2vec)
-  if (mode(beta) == "character") {
-
-    topic_coherence <- data.table(Topic = paste0("T", 1:ncol(beta)))
-    topwords_unique <- unique(as.vector(beta))
-
-    dtm_topwords <- dtm[, topwords_unique]
-    #binarization and cross product (co-occurrences) depending on class of matrix
-    if ("simple_triplet_matrix" %in% class(dtm)) {
-      dtm_topwords$v <- ifelse(dtm_topwords$v>1, 1, dtm_topwords$v) #binarize
-      tcm <- slam::tcrossprod_simple_triplet_matrix(t(dtm_topwords))
-    } else if ("Matrix" %in% unlist(attributes(class(dtm)))) {
-      dtm_topwords[dtm_topwords>0] <- 1
-      tcm <- Matrix::t(dtm_topwords) %*% dtm_topwords
-    } else {
-      dtm_topwords[dtm_topwords>0] <- 1
-      tcm <- t(dtm_topwords) %*% dtm_topwords
-    }
-
-    #create list with entries that each contains the idxs of the top words
-    #that correspond to the rows in the cooccurrence matrix
-    #to be selected for coherence calculation for individual topics
-    #first get idx numbers in tcm by match and then split using number of rows and n
-    #NOTE difference to the other else branch: ncol instead of nrow
-    topic_coherence[,tcm_idxs_topwords := split(match(as.vector(beta), topwords_unique)
-                                                , rep(1:ncol(beta), each=n))]
-
-  } else { #case if beta comes as the raw LDA result, i.e., word distribution (columns) per topic (rows)
+  #case of beta coming in form of ordered words per topic (as in text2vec)
+  if (mode(beta) == "numeric") {
 
     topic_coherence <- data.table(Topic = paste0("T", 1:nrow(beta)))
     #apply puts each result in a column, hence subset [1:n,]
@@ -100,7 +99,7 @@ calc_coherence <-  function(dtm, beta, n = 10) {
     idxs_topwords_unique <- unique(as.vector(idxs_topwords_topic))
 
     dtm_topwords <- dtm[,idxs_topwords_unique]
-    #binarization and cross product (co-occurrences) depending on class of matrix
+    #binarization and cross product (document co-occurrence) depending on class of matrix
     if ("simple_triplet_matrix" %in% class(dtm)) {
       dtm_topwords$v <- ifelse(dtm_topwords$v>1, 1, dtm_topwords$v) #binarize
       tcm <- slam::tcrossprod_simple_triplet_matrix(t(dtm_topwords))
@@ -110,14 +109,46 @@ calc_coherence <-  function(dtm, beta, n = 10) {
     } else {
       stop("Please provide dtm as simple triplet matrix (slam package) or sparse matrix (Matrix package).")
     }
+
     #create list with entries that each contains the idxs of the top words
     #that correspond to the rows (and columns) in the cooccurrence matrix
     #to be selected for coherence calculation for individual topics
     #first get idx numbers in tcm by match and then split using number of rows and n
     topic_coherence[,tcm_idxs_topwords := split(match(as.vector(idxs_topwords_topic), idxs_topwords_unique)
                                                 , rep(1:nrow(beta), each=n))]
-  }
 
+  #case of beta coming as the raw LDA result, i.e., word distribution (columns) per topic (rows)
+  } else if (mode(beta) == "character") {
+
+    topic_coherence <- data.table(Topic = paste0("T", 1:ncol(beta)))
+    topwords_unique <- unique(as.vector(beta))
+
+    dtm_topwords <- dtm[, topwords_unique]
+    #binarization and cross product (document co-occurrence) depending on class of matrix
+    #TBD wrap into function, since repeated below
+    if ("simple_triplet_matrix" %in% class(dtm)) {
+      dtm_topwords$v <- ifelse(dtm_topwords$v>1, 1, dtm_topwords$v) #binarize
+      tcm <- slam::tcrossprod_simple_triplet_matrix(t(dtm_topwords))
+    # } else if ("Matrix" %in% unlist(attributes(class(dtm)))) {
+    #   dtm_topwords[dtm_topwords>0] <- 1
+    #   tcm <- Matrix::t(dtm_topwords) %*% dtm_topwords
+    } else {
+      dtm_topwords[dtm_topwords>0] <- 1
+      tcm <- t(dtm_topwords) %*% dtm_topwords
+      #TBD currenly using a sparse tcm does not work with below parts of code
+      tcm <- as.matrix(tcm)
+    }
+    #create list with entries that each contains the idxs of the top words
+    #that correspond to the rows in the cooccurrence matrix
+    #to be selected for coherence calculation for individual topics
+    #first get idx numbers in tcm by match and then split using number of rows and n
+    #NOTE difference to the other else branch: ncol instead of nrow
+    topic_coherence[,tcm_idxs_topwords := split(match(as.vector(beta), topwords_unique)
+                                                , rep(1:ncol(beta), each=n))]
+  } else {
+    stop("Please provide beta as numeric matrix (word distribution over topics, each row is a topic)
+         or character matrix (top terms per topic, each column is a topic).")
+  }
   #FUNCTIONS TO CREATE SETS OF wi/wj
   #following approach was taken from textmineR package and turned into generalized function
   #to create indices of token combinations to extract their probabilities from tcm to calcualte, e.g, P(wi|wj))
@@ -125,18 +156,22 @@ calc_coherence <-  function(dtm, beta, n = 10) {
   #another base R implementation via grid() is used in stm package
   #S_one_one - all word pair combinations
   create_wiwj_sym <- function(idxs) {
-    do.call(rbind,
+    idxs <- idxs[order(idxs)]
+      do.call(rbind,
             sapply(1:(length(idxs)-1), function(x) {
               cbind(wi = rep(idxs[x], length(idxs[(x + 1):length(idxs)]))
                     ,wj = idxs[(x + 1):length(idxs)])
-            } , USE.NAMES = F))}
+            } , USE.NAMES = F))
+     }
   #S_one_pre - required for asymmetric UMass measure
   create_wiwj_asym <- function(idxs) {
+    idxs <- idxs[order(idxs)]
     do.call(rbind,
             sapply(2:length(idxs), function(x) {
               cbind(wi = rep(idxs[x], length(idxs[1:length(idxs[1:(x-1)])]))
                     ,wj = idxs[1:length(idxs[1:(x-1)])])
-            }, USE.NAMES = FALSE))}
+            }, USE.NAMES = FALSE))
+    }
 
   #DEFINITION OF COHERENCE MEASURES
   coh_funs <- list(
@@ -159,10 +194,10 @@ calc_coherence <-  function(dtm, beta, n = 10) {
     ##note: UCI is also based on PMI, however, UCI uses external context vector of words constructed from Wikipedia
     #in the following only intrinsic PMI without sliding window (in other words window = whole document)
     #format of PMI formula proposed by @andland - https://github.com/dselivanov/text2vec/issues/236
-    ,PMI = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
+    ,pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
     #NORMALIZED PMI
     #again, in contrast, to other implementations, only intrinsic NPMI as in PMIM (for implementation with sliding window see, e.g., Bouma, 2009)
-    ,NPMI = function(wi, wj, ndocs, tcm) {(log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)) /  -log2((tcm[wi,wj]/ndocs) + 1e-12)}
+    ,npmi = function(wi, wj, ndocs, tcm) {(log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)) /  -log2((tcm[wi,wj]/ndocs) + 1e-12)}
   ) #end list coherence function definitions
 
 
@@ -176,7 +211,7 @@ calc_coherence <-  function(dtm, beta, n = 10) {
   #calculate coherence for selected combinations of coherence functions and calculation options
   #https://stackoverflow.com/questions/11680579/assign-multiple-columns-using-in-data-table-by-group
   use_sym_mean <- setdiff(names(coh_funs), c("lgrat_UMass", "lgrat_ep.01"))
-  topic_coherence[,   (use_sym_mean):= lapply(use_sym_mean, function(f) {
+  topic_coherence[,   (use_sym_mean):= sapply(use_sym_mean, function(f) {
     lapply(tcm_idxs_topwords, function(x) {
       calc_coh(tcm = tcm
                , idxs = x
@@ -184,10 +219,10 @@ calc_coherence <-  function(dtm, beta, n = 10) {
                , coh_funs = coh_funs
                , wiwj_comb_fun = create_wiwj_sym)
     })
-  }), by = Topic]
+  }, USE.NAMES = F), by = Topic]
 
   use_asym_mean <- c("lgrat_UMass", "lgrat_UMassep.01")
-  topic_coherence[,   (use_asym_mean):= lapply(use_asym_mean, function(f) {
+  topic_coherence[,   (use_asym_mean):= sapply(use_asym_mean, function(f) {
     lapply(tcm_idxs_topwords, function(x) {
       calc_coh(tcm = tcm
                ,idxs = x
@@ -196,11 +231,11 @@ calc_coherence <-  function(dtm, beta, n = 10) {
                , wiwj_comb_fun = create_wiwj_asym
                ,aggr_fun = function(x) mean(x, na.rm = T))
     })
-  }), by = Topic]
+  }, USE.NAMES = F), by = Topic]
 
   #for comparison to original implementation of approaches by Mimno or stm package
   use_asym_sum <- c("lgrat_UMass", "lgrat_UMassep.01")
-  topic_coherence[,   paste0(use_asym_sum, "_orig"):= lapply(use_asym_sum, function(f) {
+  topic_coherence[,   paste0(use_asym_sum, "_orig"):= sapply(use_asym_sum, function(f) {
     lapply(tcm_idxs_topwords, function(x) {
       calc_coh(tcm = tcm
                ,idxs = x
@@ -209,8 +244,8 @@ calc_coherence <-  function(dtm, beta, n = 10) {
                ,wiwj_comb_fun = create_wiwj_asym
                ,aggr_fun = function(x) sum(x, na.rm = T))
     })
-  }), by = Topic]
+  }, USE.NAMES = F), by = Topic]
 
   topic_coherence[,c("tcm_idxs_topwords"):= NULL]
-  return(topic_coherence)
+  return(topic_coherence[])
 }
