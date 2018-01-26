@@ -26,9 +26,10 @@
 # or (ii) using a sliding window over a corpus (usually external, e.g. Wikipedia) to get counts of document co-occurrence of top N words
 
 #TBD
-#1 turn on radix order/sort
 #2 use of external corpus or at least context vectors
 #3 larger subsets than S_one_one, such as, S_one_any, etc.
+
+#DONE #1 turn on radix order/sort
 
 
 #regarding TBD - #2 something like the following might be used to construct a corpus based tcm
@@ -99,7 +100,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
     topic_coherence <- data.table(Topic = paste0("T", 1:nrow(beta)))
     #apply puts each result in a column, hence subset [1:n,]
     #instead of [,1:n] which would work with the input data
-    idxs_topwords_topic <- apply(beta, 1, order, decreasing=TRUE)[1:n,]
+    idxs_topwords_topic <- apply(beta, 1, order, decreasing=TRUE, method = "radix")[1:n,]
     idxs_topwords_unique <- unique(as.vector(idxs_topwords_topic))
 
     dtm_topwords <- dtm[,idxs_topwords_unique]
@@ -116,7 +117,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
     }
 
     #order columns of tcm from high to low entries for [wi,wi]
-    # reorder_decr <- order(diag(tcm), decreasing = TRUE)
+    # reorder_decr <- order(diag(tcm), decreasing = TRUE, method = "radix")
     # tcm <- tcm[reorder_decr, reorder_decr]
     # idxs_topwords_unique <- idxs_topwords_unique[reorder_decr]
 
@@ -146,7 +147,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
     }
 
     #order columns of tcm from high to low entries for [wi,wi]
-    # reorder_decr <- order(diag(tcm), decreasing = FALSE)
+    # reorder_decr <- order(diag(tcm), decreasing = FALSE, method = "radix")
     # tcm <- tcm[reorder_decr, reorder_decr]
     # topwords_unique <- topwords_unique[reorder_decr]
 
@@ -178,7 +179,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
   #S_one_pre - required for asymmetric UMass measure
   create_wiwj_asym <- function(idxs) {
     #to comply with stm results idxs have to be reorderd
-    idxs <- idxs[order(idxs, decreasing = F)]
+    idxs <- idxs[order(idxs, decreasing = F, method = "radix")]
     do.call(rbind,
             sapply(2:length(idxs), function(x) {
               cbind(wi = rep(idxs[x], length(idxs[1:length(idxs[1:(x-1)])]))
