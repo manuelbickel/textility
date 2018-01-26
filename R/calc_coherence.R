@@ -26,6 +26,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
 
   #####STILL A WORKING VERSION - Results may be erroneous
 
+
   #GENERAL LOGIC
   #1 get top N words per topic
   #2 reduce dtm to top N word space
@@ -41,12 +42,17 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
   #     e.g. pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
   #4.4 aggregate the results via mean over number of wiwj pairs (original UMass uses counts and sum)
 
+  #NOTE: Regarding the comment in text2vec issue #229 - results are now in line with stm
+  #      I think I found a workaround to create suitable subsets, see TODOs for improvements...
+
   #TODO
-  #(i) using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
-  #    initial approach in below code (still as comment)
+  #(i)  using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
+  #     initial approach in below code (still as comment)
   #(ii) use word vectors for wi / wj instead of single words, hence, subsets such as S_one_any, etc.
-  #creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
-  #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
+  #     creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
+  #     adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
+  #(iii)Currently indices of subsets are stored in memory, this should be turned to dynamic creation of indices, otherwise too much memory usage
+  #     the lines topic_coherence[,tcm_idxs_topwords := split(match... have to be incorporated into create_wiwj_sym / create_wiwj_asym
 
   #CREDITS / REFERENCES:
   #the first part of the code within the first if else statement to get the
