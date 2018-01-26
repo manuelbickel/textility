@@ -68,11 +68,6 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
   #New York, New York, USA: ACM Press, S. 399-408.
 
 
-
-
-
-
-
 #GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS
   #case of beta coming in form of ordered words per topic (e.g. as from text2vec)
   if (mode(beta) == "numeric") {
@@ -104,17 +99,31 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     #but then the output differs from stm (also for different sorting options of the indices in below function create_wiwj_asym)
     #have not figured out, yet, how to best program the two options (the brute force way would be to create two different tcms, but thats a large copy)
 
-    #order columns of tcm from high to low entries for [wi,wi]
-    # reorder_decr <- order(diag(tcm), decreasing = TRUE, method = "radix")
-    # tcm <- tcm[reorder_decr, reorder_decr]
-    # idxs_topwords_unique <- idxs_topwords_unique[reorder_decr]
-
     #create list with entries that each contains the idxs of the top words
-    #that correspond to the rows (and columns) in the cooccurrence matrix
+    #that correspond to the rows (or columns) in the cooccurrence matrix
     #to be selected for coherence calculation for individual topics
     #first get idx numbers in tcm by match and then split using number of rows and n
+
+#ESTABLISH SETS OF REFERENCE INDICES FOR TCM
+    #first keep order as is for asymmetric measures
     topic_coherence[,tcm_idxs_topwords := split(match(as.vector(idxs_topwords_topic), idxs_topwords_unique)
                                                 , rep(1:nrow(beta), each=n))]
+
+    #second assume a tcm ordered by occurence so that from left to right p(wi) > p(wj) for symmetric measures
+    #this seems like to times around the corner, maybe there is a clearer/easier way to achieve this
+    #for demonstrative details see textility/tests/experimenting_with_ordering_wiwj_combis.R
+    reorder <- order(diag(tcm),  decreasing = TRUE)
+    #tcm_ord <- tcm[reorder, reorder]# this is the assumed order of tcm, however, we only reorder reference indeces not the tcm itself
+    #reorder the column indices from high to low probability
+    idxs_topwords_unique_ord <- idxs_topwords_unique[reorder]
+    #given an ordered set of indices for an asymmetric measure, get the reference order to order this set by decreasing probability
+    idxs_topwords_unique_ord <- match(idxs_topwords_unique_ord, idxs_topwords_unique)
+
+    topic_coherence[,tcm_idxs_sym :=  lapply(tcm_idxs_topwords, function(x) {
+                                            #check how the current order of indices matches an ordered set by probability
+                                            #and reorder the indices so that they fulfill this condition
+                                            matchreferenceorder <- match(x, idxs_topwords_unique_ord)
+                                            x[order(matchreferenceorder, decreasing = TRUE)]})]
 
   #case of beta coming as the raw LDA result, i.e., word distribution (columns) per topic (rows)
   } else if (mode(beta) == "character") {
@@ -134,11 +143,6 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
       tcm <- t(dtm_topwords) %*% dtm_topwords
     }
 
-    #order columns of tcm from high to low entries for [wi,wi]
-    # reorder_decr <- order(diag(tcm), decreasing = FALSE, method = "radix")
-    # tcm <- tcm[reorder_decr, reorder_decr]
-    # topwords_unique <- topwords_unique[reorder_decr]
-
     #create list with entries that each contains the idxs of the top words
     #that correspond to the rows in the cooccurrence matrix
     #to be selected for coherence calculation for individual topics
@@ -146,6 +150,9 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     #NOTE difference to the other else branch: ncol instead of nrow
     topic_coherence[,tcm_idxs_topwords := split(match(as.vector(beta), topwords_unique)
                                                 , rep(1:ncol(beta), each=n))]
+
+    #TODO
+    #introduce the same workaround for numeric input for reordering indices for symmetric sets
   }
 
   #FIXME when using beta from text2vec as input the code only works if setting tcm to as.matrix, not sure why, yet...., see some checks in Test 1c
@@ -229,6 +236,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
 
   #calculate coherence for selected combinations of coherence functions and calculation options
   #https://stackoverflow.com/questions/11680579/assign-multiple-columns-using-in-data-table-by-group
+  #TODO more automated version that selects argument inputs according to selected coherence function, maybe define functions as class...
   use_sym_mean <- setdiff(names(coh_funs), c("lgrat_UMass", "lgrat_ep.01"))
   topic_coherence[,   (use_sym_mean):= sapply(use_sym_mean, function(f) {
     lapply(tcm_idxs_topwords, function(x) {
