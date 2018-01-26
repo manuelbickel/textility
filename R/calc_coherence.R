@@ -1,16 +1,12 @@
 
 #####STILL A WORKING VERSION - Results may be erroneous
 
-
-#NOTE to my comment to text2vec #229
-#I think I solved the issue concerning creation of wi/wj subsets, results now are in line with stm
-
 #GENERAL LOGIC
 #1 get top N words per topic
 #2 reduce dtm to top N word space
-#3 create tcm showing document co-occurence of top N words (binarize dtm, do cross product)
-#(3b - divide tcm by ndocs gives probability)
-#(since some Coherence measures, e.g., UMass originally use counts, the division is skipped and done at later step)
+#3 create tcm with document co-occurence of top N words (binarize dtm, do cross product)
+#(3b - divide tcm by ndocs gives probability, since some Coherence measures, e.g., UMass originally use counts,
+#      the division is done at later step)
 #4 calculate coherence for each topic (following steps 4.x are done individually for each topic)
 #4.1 reduce tcm to top n words
 #4.2 create pairs of indices of wi / wj to be used for coherence calculation
@@ -20,56 +16,49 @@
 #     e.g. pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
 #4.4 aggregate the results via mean over number of wiwj pairs (original UMass uses counts and sum)
 
-
-#ADDITIONAL OPTIONS
-#arise e.g., (i) from using word vectors for wi / wj instead of single words
-# or (ii) using a sliding window over a corpus (usually external, e.g. Wikipedia) to get counts of document co-occurrence of top N words
-
-#TBD
-#2 use of external corpus or at least context vectors
-#3 larger subsets than S_one_one, such as, S_one_any, etc.
-
-#DONE #1 turn on radix order/sort
+#ADDITIONAL OPTIONS - TBD
+#(i) using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
+#(ii) use word vectors for wi / wj instead of single words, hence, subsets such as S_one_any, etc.
 
 
-#regarding TBD - #2 something like the following might be used to construct a corpus based tcm
-# library(text2vec)
-# #just a silly example for demonstration
-# corpus <- c(paste(letters, collapse = " "), paste(c("a", letters, "b", letters), collapse = " "))
-# it = itoken(word_tokenizer(corpus))
-# v = create_vocabulary(it)
-# topwords <- c("a", "b", "z")
-# v <- v[v$term %in% topwords,]
-# window_size <- 5
-# tcm = create_tcm(it, vocab_vectorizer(v), skip_grams_window = window_size,  weights = rep(1, window_size))
-# #entries of diagonal need to be adapted to create result that resembles something like cross-product
-# diag(tcm) <- v$term_count
-# #the final tcm might be used as reference tcm to get probabilities
-# #formulas need to be adapted to cover cases of division by zero
-# tcm
+#regarding TBD - #(i) something like the following might be used to construct a corpus based tcm
+  # library(text2vec)
+  # #just a silly example for demonstration
+  # corpus <- c(paste(letters, collapse = " "), paste(c("a", letters, "b", letters), collapse = " "))
+  # it = itoken(word_tokenizer(corpus))
+  # v = create_vocabulary(it)
+  # topwords <- c("a", "b", "z")
+  # v <- v[v$term %in% topwords,]
+  # window_size <- 5
+  # tcm = create_tcm(it, vocab_vectorizer(v), skip_grams_window = window_size,  weights = rep(1, window_size))
+  # #entries of diagonal need to be adapted to create result that resembles something like cross-product
+  # diag(tcm) <- v$term_count
+  # #the final tcm might be used as reference tcm to get probabilities
+  # #formulas need to be adapted to cover cases of division by zero
+  # tcm
 #regarding TBD - #3
-#creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
-#adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
+  #creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
+  #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
 
-#Credits:
-#the first part of the code within the first if else statement to get the
-#indices of top words per topic is largely a copy from the stm package
-#adaptions were applied to make the code accept addtional types of input matrices
-#Authors: Molly Roberts, Brandon Stewart and Dustin Tingley
-#https://github.com/bstewart/stm/blob/master/R/semanticCoherence.R
-#Furthermore, the Java implementation palmetto to calculate topic coherence served as inspiration
-#Main Author / Maintainer: Michael RÃ¶der
-#https://github.com/dice-group/Palmetto
-#http://aksw.org/Projects/Palmetto.html
-#Apart from software Authors of Palmetto have written the following paper that served as the basis for this code
-#https://dl.acm.org/citation.cfm?id=2685324
-#RÃ¶der, Michael; Both, Andreas; Hinneburg, Alexander (2015):
-#Exploring the Space of Topic Coherence Measures.
-#In: Xueqi Cheng, Hang Li, Evgeniy Gabrilovich und Jie Tang (Hg.):
-#Proceedings of the Eighth ACM International Conference on Web Search and Data Mining - WSDM '15.
-#the Eighth ACM International Conference. Shanghai, China, 02.02.2015 - 06.02.2015.
-#New York, New York, USA: ACM Press, S. 399-408.
 
+#Credits / References:
+  #the first part of the code within the first if else statement to get the
+  #indices of top words per topic is largely a copy from the stm package
+  #adaptions were applied to make the code accept addtional types of input matrices
+  #Authors: Molly Roberts, Brandon Stewart and Dustin Tingley
+  #https://github.com/bstewart/stm/blob/master/R/semanticCoherence.R
+  #Furthermore, the Java implementation palmetto to calculate topic coherence served as inspiration
+  #Main Author / Maintainer: Michael Röder
+  #https://github.com/dice-group/Palmetto
+  #http://aksw.org/Projects/Palmetto.html
+  #Apart from software Authors of Palmetto have written the following paper that served as the basis for this code
+  #https://dl.acm.org/citation.cfm?id=2685324
+  #Röder, Michael; Both, Andreas; Hinneburg, Alexander (2015):
+  #Exploring the Space of Topic Coherence Measures.
+  #In: Xueqi Cheng, Hang Li, Evgeniy Gabrilovich und Jie Tang (Hg.):
+  #Proceedings of the Eighth ACM International Conference on Web Search and Data Mining - WSDM '15.
+  #the Eighth ACM International Conference. Shanghai, China, 02.02.2015 - 06.02.2015.
+  #New York, New York, USA: ACM Press, S. 399-408.
 
 
 #' Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)
@@ -84,8 +73,7 @@
 #' @param mean_over_topics By default FALSE to ouptut the coherence score for each topic.
 #'                         Setting to TRUE outputs mean scores over all topics. The latter is useful to compare multiple models.
 #'
-#' @return A \code{data.table} showing the coherence scores for different measures for each topic.
-#'         For comparison of various models results need to be averaged over topics.
+#' @return A \code{data.table} showing the coherence scores for different measures for each topic or mean over all topics.
 #'
 #' @examples
 #'
@@ -94,7 +82,7 @@
 
 calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
 
-  #case of beta coming in form of ordered words per topic (as in text2vec)
+  #case of beta coming in form of ordered words per topic (e.g. as from text2vec)
   if (mode(beta) == "numeric") {
 
     topic_coherence <- data.table(Topic = paste0("T", 1:nrow(beta)))
@@ -160,6 +148,8 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
                                                 , rep(1:ncol(beta), each=n))]
   }
 
+  #FIXME when using text2vec beta as input the code only works if setting tcm to matrix, not sure why, yet...., see some checks in Test 1c
+  tcm <- as.matrix(tcm)
 
   #FUNCTIONS TO CREATE SETS OF wi/wj
   #following approach was taken from textmineR package and turned into generalized function

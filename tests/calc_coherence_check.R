@@ -58,6 +58,7 @@ coherence_text2vec <- calc_coherence(dtm = dtm_t2v, beta = lda_model$get_top_wor
                                      , n = n_topwords)
 
 #1c - difference between text2vec vs topicmodels ---------------------------------------------------------------
+#FIXME when using text2vec beta as input tcm must be set to as.matrix to make code work, not sure why
 beta_t2v <- lda_model$get_top_words(n = n_topwords, topic_number = 1L:n_topics)
 beta <- terms(fitted, n_topwords)
 
@@ -162,6 +163,18 @@ semCoh1_stmoriginal <- function(mat, M, beta){
 }
 
 #directly compare results
+coherence_beta <- calc_coherence(dtm = dtm, beta = fitted@beta, n = n_topwords)
 coherence_beta[,  stm_semCo:=  semCoh1_stmoriginal(mat = dtm, M = n_topwords, beta = fitted@beta)]
 all(coherence_beta[, stm_semCo - lgrat_UMassep.01_orig] == 0)
 #TRUE
+coherence_beta[,compare:= (lgrat_UMassep.01_orig - stm_semCo)]
+coherence_beta[, c("lgrat_UMassep.01_orig",  "stm_semCo", "compare")]
+
+
+
+
+
+
+
+
+
