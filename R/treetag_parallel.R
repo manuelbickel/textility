@@ -1,10 +1,10 @@
 
-#' Wrapper around treetag function from korPus for parallel part of speech tagging with Treetagger
+
+#' Wrapper around treetag function from koRpus for parallel part of speech tagging with Treetagger
 #'
 #' NOTE: To increase speed, the input documents are pasted together by a marker phrase mimicking a sentence.
 #' This may or may not have an effect on the usability of results for your downstream analysis.
-#' NOTE: The package \code{doParallel} and \code{foreach} have to be loaded.
-#' The package \code{koRpus} has to be installed.
+#' NOTE: The package \code{doParallel} and \code{foreach} have to be loaded. The package \code{koRpus} has to be installed.
 #'
 #' @param docs The strings to tag.
 #' @param ids Ids used to mark each document. By default set to NULL which results in \code{ids = seq_along(docs)}.

@@ -2,7 +2,7 @@
 % Please edit documentation in R/treetag_parallel.R
 \name{treetag_parallel}
 \alias{treetag_parallel}
-\title{Wrapper around treetag function from korPus for parallel part of speech tagging with Treetagger}
+\title{Wrapper around treetag function from koRpus for parallel part of speech tagging with Treetagger}
 \usage{
 treetag_parallel(docs, ids = NULL, ncores = 2, chunk_size = 1000,
   language = "en", treetagger_path = "C:/TreeTagger")
@@ -30,8 +30,7 @@ A \code{data.table} inlcuding tagged tokens. Documents appear consecutively in t
 \description{
 NOTE: To increase speed, the input documents are pasted together by a marker phrase mimicking a sentence.
 This may or may not have an effect on the usability of results for your downstream analysis.
-NOTE: The package \code{doParallel} and \code{foreach} have to be loaded.
-The package \code{koRpus} has to be installed.
+NOTE: The package \code{doParallel} and \code{foreach} have to be loaded. The package \code{koRpus} has to be installed.
 }
 \examples{
 
