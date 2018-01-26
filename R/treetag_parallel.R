@@ -9,8 +9,9 @@
 #' @param docs The strings to tag.
 #' @param ids Ids used to mark each document. By default set to NULL which results in \code{ids = seq_along(docs)}.
 #' @param ncores Number of cores to use. By default 2.
-#' @param chunk_size Maximum size of document subset to pass to single thread for tagging. Depending on document size, different chunk sizes are reasonable.
-#'                   As an orientation. Chunk size of 1000 worked well for scientific abstracts of around 300-400 words each.
+#' @param chunk_size Maximum size of document subset to pass to single thread for tagging.
+#'                   By default set to length(docs)/ncores.
+#'                   Depending on document size and number of documents, different chunk sizes might be reasonable.
 #' @param language Langauge to be assumed for the documents. By default "en". Parameter is passed to \code{treetag} from korPus package.
 #' @param treetagger_path Path to the Treetagger program that has to be installed separately. By default "C:/TreeTagger".
 #'
@@ -37,7 +38,7 @@
 #' #for larger number of documents the timewise advantage will be higher
 #' many_longer_docs <- rep(paste(rep(docs, 30), collapse = " "), 200)
 #' ncores <- 4
-#' chunk_size <- length(many_longer_docs)/ncores
+#' chunk_size <- length(many_longer_docs)/ncores #this is the default when chunk_size = NULL
 #' system.time(res_parallel <- pos_tag_parallel(docs = many_longer_docs, ids = seq_along(many_longer_docs), chunk_size = chunk_size, ncores = ncores))
 #' # User      System     elapsed
 #' # 0.13        0.03       11.01
@@ -60,9 +61,14 @@
 #'
 
 
-treetag_parallel <-  function(docs, ids = NULL, ncores = 2, chunk_size = 1000, language = "en", treetagger_path = "C:/TreeTagger") {
+treetag_parallel <-  function(docs, ids = NULL, ncores = 2, chunk_size = NULL, language = "en", treetagger_path = "C:/TreeTagger") {
+
   if (is.null(ids)) {
     ids <- seq_along(docs)
+  }
+
+  if (is.null(chunk_size)) {
+    chunk_size <- length(docs)/ncores
   }
 
   if (length(docs) != length(ids)) {
