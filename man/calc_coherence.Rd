@@ -2,9 +2,9 @@
 % Please edit documentation in R/calc_coherence.R
 \name{calc_coherence}
 \alias{calc_coherence}
-\title{Calculation of various coherence measures for topic models based on LDA algorithm}
+\title{Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)}
 \usage{
-calc_coherence(dtm, beta, n = 10)
+calc_coherence(dtm, beta, n = 10, mean_over_topics = FALSE)
 }
 \arguments{
 \item{dtm}{The term document matrix, may be a \code{sparseMatrix} or \code{simple_triplet_matrix}.}
@@ -16,13 +16,15 @@ as the output \code{terms(fitted_model, ...)} from topicmodesl pacakge or fitted
 
 \item{n}{Number of top words per topic to be used in the calculation. (if terms() or get_top_words() input is used,
 the number needs to be the same as in these calls) - a better routine to check and adjust numbers will be implemented}
+
+\item{mean_over_topics}{By default FALSE to ouptut the coherence score for each topic.
+Setting to TRUE outputs mean scores over all topics. The latter is useful to compare multiple models.}
 }
 \value{
-A \code{data.table} showing the coherence scores for different measures for each topic.
-        For comparison of various models results need to be averaged over topics.
+A \code{data.table} showing the coherence scores for different measures for each topic or mean over all topics.
 }
 \description{
-Calculation of various coherence measures for topic models based on LDA algorithm
+Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)
 }
 \examples{
 

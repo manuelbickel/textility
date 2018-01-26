@@ -1,48 +1,4 @@
 
-#####STILL A WORKING VERSION - Results may be erroneous
-
-#GENERAL LOGIC
-#1 get top N words per topic
-#2 reduce dtm to top N word space
-#3 create tcm with document co-occurence of top N words (binarize dtm, do cross product)
-#(3b - divide tcm by ndocs gives probability, since some Coherence measures, e.g., UMass originally use counts,
-#      the division is done at later step)
-#4 calculate coherence for each topic (following steps 4.x are done individually for each topic)
-#4.1 reduce tcm to top n words
-#4.2 create pairs of indices of wi / wj to be used for coherence calculation
-#    Umass uses ASYMmetric combination: SUM(from m=2 to N)SUM(from l=1 to m-1) ...P(wm,wl)...
-#    other measures use SYMmetric combination: SUM(from i=1 to N-1)SUM(from j=i+1 to N) ...P(wi,wj)...
-#4.3 get values for all wiwj pairs from tcm and calculate coherence
-#     e.g. pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
-#4.4 aggregate the results via mean over number of wiwj pairs (original UMass uses counts and sum)
-
-#TODO
-#(i) using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
-#    initial approach in below code (still as comment)
-#(ii) use word vectors for wi / wj instead of single words, hence, subsets such as S_one_any, etc.
-      #creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
-      #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
-
-#CREDITS / REFERENCES:
-  #the first part of the code within the first if else statement to get the
-  #indices of top words per topic is largely a copy from the stm package
-  #adaptions were applied to make the code accept addtional types of input matrices
-  #Authors: Molly Roberts, Brandon Stewart and Dustin Tingley
-  #https://github.com/bstewart/stm/blob/master/R/semanticCoherence.R
-  #Furthermore, the Java implementation palmetto to calculate topic coherence served as inspiration
-  #Main Author / Maintainer: Michael Röder
-  #https://github.com/dice-group/Palmetto
-  #http://aksw.org/Projects/Palmetto.html
-  #Apart from software Authors of Palmetto have written the following paper that served as the basis for this code
-  #https://dl.acm.org/citation.cfm?id=2685324
-  #Röder, Michael; Both, Andreas; Hinneburg, Alexander (2015):
-  #Exploring the Space of Topic Coherence Measures.
-  #In: Xueqi Cheng, Hang Li, Evgeniy Gabrilovich und Jie Tang (Hg.):
-  #Proceedings of the Eighth ACM International Conference on Web Search and Data Mining - WSDM '15.
-  #the Eighth ACM International Conference. Shanghai, China, 02.02.2015 - 06.02.2015.
-  #New York, New York, USA: ACM Press, S. 399-408.
-
-
 #' Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)
 #'
 #' @param dtm The term document matrix, may be a \code{sparseMatrix} or \code{simple_triplet_matrix}.
@@ -66,6 +22,56 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
                             #TODO, wiwj_cooccurrence_reference = NULL for creating tcm let input be dtm OR alternatively documents with a sliding window
                             #TODO,window_size = NULL #allow user to specify skip_grams_window (input check needed concering dtm or documents)
                             ) {
+
+
+  #####STILL A WORKING VERSION - Results may be erroneous
+
+  #GENERAL LOGIC
+  #1 get top N words per topic
+  #2 reduce dtm to top N word space
+  #3 create tcm with document co-occurence of top N words (binarize dtm, do cross product)
+  #(3b - divide tcm by ndocs gives probability, since some Coherence measures, e.g., UMass originally use counts,
+  #      the division is done at later step)
+  #4 calculate coherence for each topic (following steps 4.x are done individually for each topic)
+  #4.1 reduce tcm to top n words
+  #4.2 create pairs of indices of wi / wj to be used for coherence calculation
+  #    Umass uses ASYMmetric combination: SUM(from m=2 to N)SUM(from l=1 to m-1) ...P(wm,wl)...
+  #    other measures use SYMmetric combination: SUM(from i=1 to N-1)SUM(from j=i+1 to N) ...P(wi,wj)...
+  #4.3 get values for all wiwj pairs from tcm and calculate coherence
+  #     e.g. pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
+  #4.4 aggregate the results via mean over number of wiwj pairs (original UMass uses counts and sum)
+
+  #TODO
+  #(i) using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
+  #    initial approach in below code (still as comment)
+  #(ii) use word vectors for wi / wj instead of single words, hence, subsets such as S_one_any, etc.
+  #creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
+  #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
+
+  #CREDITS / REFERENCES:
+  #the first part of the code within the first if else statement to get the
+  #indices of top words per topic is largely a copy from the stm package
+  #adaptions were applied to make the code accept addtional types of input matrices
+  #Authors: Molly Roberts, Brandon Stewart and Dustin Tingley
+  #https://github.com/bstewart/stm/blob/master/R/semanticCoherence.R
+  #Furthermore, the Java implementation palmetto to calculate topic coherence served as inspiration
+  #Main Author / Maintainer: Michael R?der
+  #https://github.com/dice-group/Palmetto
+  #http://aksw.org/Projects/Palmetto.html
+  #Apart from software Authors of Palmetto have written the following paper that served as the basis for this code
+  #https://dl.acm.org/citation.cfm?id=2685324
+  #R?der, Michael; Both, Andreas; Hinneburg, Alexander (2015):
+  #Exploring the Space of Topic Coherence Measures.
+  #In: Xueqi Cheng, Hang Li, Evgeniy Gabrilovich und Jie Tang (Hg.):
+  #Proceedings of the Eighth ACM International Conference on Web Search and Data Mining - WSDM '15.
+  #the Eighth ACM International Conference. Shanghai, China, 02.02.2015 - 06.02.2015.
+  #New York, New York, USA: ACM Press, S. 399-408.
+
+
+
+
+
+
 
 #GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS
   #case of beta coming in form of ordered words per topic (e.g. as from text2vec)
