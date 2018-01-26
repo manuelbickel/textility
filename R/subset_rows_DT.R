@@ -1,4 +1,4 @@
-#' Subset rows of a data.table in a memory efficient way
+#' Subset rows of a data.table by reference
 #'
 #' @param DT The \code{data.table} to be subsetted.
 #' @param idxs An \code{integer} vector with row indices for the subset. For a conditional subsets see example below.
