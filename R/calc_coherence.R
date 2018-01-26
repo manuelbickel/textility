@@ -52,7 +52,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
   #     creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
   #     adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
   #(iii)Currently indices of subsets are stored in memory, this should be turned to dynamic creation of indices, otherwise too much memory usage
-  #     the lines topic_coherence[,tcm_idxs_topwords := split(match... have to be incorporated into create_wiwj_sym / create_wiwj_asym
+  #     the lines topic_coherence[,tcm_idxs_asym := split(match... have to be incorporated into create_wiwj_sym / create_wiwj_asym
 
   #CREDITS / REFERENCES:
   #the first part of the code within the first if else statement to get the
@@ -112,7 +112,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
 
 #ESTABLISH SETS OF REFERENCE INDICES FOR TCM
     #first keep order as is for asymmetric measures
-    topic_coherence[,tcm_idxs_topwords := split(match(as.vector(idxs_topwords_topic), idxs_topwords_unique)
+    topic_coherence[,tcm_idxs_asym := split(match(as.vector(idxs_topwords_topic), idxs_topwords_unique)
                                                 , rep(1:nrow(beta), each=n))]
 
     #second assume a tcm ordered by occurence so that from left to right p(wi) > p(wj) for symmetric measures
@@ -125,7 +125,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     #given an ordered set of indices for an asymmetric measure, get the reference order to order this set by decreasing probability
     idxs_topwords_unique_ord <- match(idxs_topwords_unique_ord, idxs_topwords_unique)
 
-    topic_coherence[,tcm_idxs_sym :=  lapply(tcm_idxs_topwords, function(x) {
+    topic_coherence[,tcm_idxs_sym :=  lapply(tcm_idxs_asym, function(x) {
                                             #check how the current order of indices matches an ordered set by probability
                                             #and reorder the indices so that they fulfill this condition
                                             matchreferenceorder <- match(x, idxs_topwords_unique_ord)
@@ -154,7 +154,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     #to be selected for coherence calculation for individual topics
     #first get idx numbers in tcm by match and then split using number of rows and n
     #NOTE difference to the other else branch: ncol instead of nrow
-    topic_coherence[,tcm_idxs_topwords := split(match(as.vector(beta), topwords_unique)
+    topic_coherence[,tcm_idxs_asym := split(match(as.vector(beta), topwords_unique)
                                                 , rep(1:ncol(beta), each=n))]
 
     #TODO
@@ -245,7 +245,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
   #TODO more automated version that selects argument inputs according to selected coherence function, maybe define functions as class...
   use_sym_mean <- setdiff(names(coh_funs), c("lgrat_UMass", "lgrat_ep.01"))
   topic_coherence[,   (use_sym_mean):= sapply(use_sym_mean, function(f) {
-    lapply(tcm_idxs_topwords, function(x) {
+    lapply(tcm_idxs_sym, function(x) {
       calc_coh(tcm = tcm
                , idxs = x
                , coh_measure = f
@@ -256,7 +256,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
 
   use_asym_mean <- c("lgrat_UMass", "lgrat_UMassep.01")
   topic_coherence[,   (use_asym_mean):= sapply(use_asym_mean, function(f) {
-    lapply(tcm_idxs_topwords, function(x) {
+    lapply(tcm_idxs_asym, function(x) {
       calc_coh(tcm = tcm
                ,idxs = x
                ,coh_measure = f
@@ -269,7 +269,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
   #for comparison to original implementation of approaches by Mimno or stm package
   use_asym_sum <- c("lgrat_UMass", "lgrat_UMassep.01")
   topic_coherence[,   paste0(use_asym_sum, "_orig"):= sapply(use_asym_sum, function(f) {
-    lapply(tcm_idxs_topwords, function(x) {
+    lapply(tcm_idxs_asym, function(x) {
       calc_coh(tcm = tcm
                ,idxs = x
                ,coh_measure = f
@@ -279,7 +279,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     })
   }, USE.NAMES = F), by = Topic]
 
-  topic_coherence[,c("tcm_idxs_topwords"):= NULL]
+  topic_coherence[,c("tcm_idxs_sym", "tcm_idxs_asym"):= NULL]
 
   if (mean_over_topics == TRUE) {
      topic_coherence[, lapply(.SD, function(x) mean(x, na.rm = T)), .SDcols = setdiff(names(topic_coherence), "Topic")]

@@ -35,11 +35,15 @@ fitted <- LDA(dtm, method = "Gibbs" , control = list(alpha = alpha_prior, seed =
 
 #input beta vs terms(fitted, n_topwords)
 coherence_beta <- calc_coherence(dtm = dtm, beta = fitted@beta, n = n_topwords)
+coherence_beta
+
+#TODO function needs to be updated concerning creating of subsets for this input type, previous version worked
 coherence_beta_terms <-  calc_coherence(dtm = dtm, beta = terms(fitted, n_topwords) ,n = n_topwords)
 all.equal(coherence_beta, coherence_beta_terms)
 #TRUE
 
 #1b - test if input from text2vec works ---------------------------------------------------------------
+#TODO function needs to be updated concerning creating of subsets for this input type, previous version worked
 #following functions needed to use same data as above but as sparseMatrix as required by text2vec
 tripl_to_sparse <- function(simple_triplet_matrix) {
   Matrix::sparseMatrix(i=simple_triplet_matrix$i
