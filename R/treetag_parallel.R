@@ -3,7 +3,6 @@
 #'
 #' NOTE: To increase speed, the input documents are pasted together by a marker phrase mimicking a sentence.
 #' This may or may not have an effect on the usability of results for your downstream analysis.
-#'
 #' NOTE: The package \code{doParallel} and \code{foreach} have to be loaded.
 #' The package \code{koRpus} has to be installed.
 #'
