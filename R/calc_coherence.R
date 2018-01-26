@@ -16,12 +16,11 @@
 #     e.g. pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
 #4.4 aggregate the results via mean over number of wiwj pairs (original UMass uses counts and sum)
 
-#ADDITIONAL OPTIONS - TBD
+#TODO
 #(i) using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
 #(ii) use word vectors for wi / wj instead of single words, hence, subsets such as S_one_any, etc.
 
-
-#regarding TBD - #(i) something like the following might be used to construct a corpus based tcm
+#regarding TODO (i) something like the following might be used to construct a corpus based tcm
   # library(text2vec)
   # #just a silly example for demonstration
   # corpus <- c(paste(letters, collapse = " "), paste(c("a", letters, "b", letters), collapse = " "))
@@ -36,12 +35,11 @@
   # #the final tcm might be used as reference tcm to get probabilities
   # #formulas need to be adapted to cover cases of division by zero
   # tcm
-#regarding TBD - #3
+#regarding TODO (ii)
   #creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
   #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
 
-
-#Credits / References:
+#CREDITS / REFERENCES:
   #the first part of the code within the first if else statement to get the
   #indices of top words per topic is largely a copy from the stm package
   #adaptions were applied to make the code accept addtional types of input matrices
@@ -82,6 +80,7 @@
 
 calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
 
+#GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS
   #case of beta coming in form of ordered words per topic (e.g. as from text2vec)
   if (mode(beta) == "numeric") {
 
@@ -103,6 +102,14 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
       dtm_topwords[dtm_topwords>0] <- 1
       tcm <- t(dtm_topwords) %*% dtm_topwords
     }
+
+    #TODO
+    #FIXME
+    #current output of the complete function is in line with stm results (asymmetric subset of indices)
+    #for symmetric sets it would be better to order tcm by word occurrence/probability as shown below
+    #so that it can always be assumed that p(wi) > p(wj) when going from left to right through tcm
+    #but then the output differs from stm (also for different sorting options of the indices in below function create_wiwj_asym)
+    #have not figured out, yet, how to best program the two options (the brute force way would be to create two different tcms, but thats a large copy)
 
     #order columns of tcm from high to low entries for [wi,wi]
     # reorder_decr <- order(diag(tcm), decreasing = TRUE, method = "radix")
@@ -148,10 +155,10 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
                                                 , rep(1:ncol(beta), each=n))]
   }
 
-  #FIXME when using text2vec beta as input the code only works if setting tcm to matrix, not sure why, yet...., see some checks in Test 1c
+  #FIXME when using beta from text2vec as input the code only works if setting tcm to as.matrix, not sure why, yet...., see some checks in Test 1c
   tcm <- as.matrix(tcm)
 
-  #FUNCTIONS TO CREATE SETS OF wi/wj
+#CREATE SETS OF wi/wj (functions)
   #following approach was taken from textmineR package and turned into generalized function
   #to create indices of token combinations to extract their probabilities from tcm to calcualte, e.g, P(wi|wj))
   #resembles utils::combn(idxs, 2) but is slightly faster for higher number of idxs
@@ -177,7 +184,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
             }, USE.NAMES = FALSE))
     }
 
-  #DEFINITION OF COHERENCE MEASURES
+#DEFINITION OF COHERENCE MEASURES
   coh_funs <- list(
   #LOG-RATIO
     #with smoothing parameter = 1, resembles UMAss
@@ -205,7 +212,9 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
     ,dif_wjwi = function(wi, wj, ndocs, tcm) {tcm[wj,wi]/tcm[wj,wj] - (tcm[wj,wj]/ndocs)}
   )
 
-  #wrapper function to calculate coherence measures taking calculation function and parameters as input
+#CALCULATE COHERENCE
+  #wrapper function taking coherence function and parameters as input
+  #TODO coh_funs needs to be passed to the function as argument, later steps would be less verbose when fetching it from the functioni environment -> scoping
   calc_coh <- function(ndocs = nrow(dtm), tcm, idxs, wiwj_comb_fun, coh_funs = coh_funs, coh_measure, aggr_fun = function(x) {mean(x, na.rm = T)}) {
     wiwj_idxs <- wiwj_comb_fun(idxs)
     res <- mapply(function(x,y) coh_funs[[coh_measure]](x,y, tcm = tcm, ndocs = ndocs), wiwj_idxs[,"wi"], wiwj_idxs[,"wj"])
