@@ -18,26 +18,10 @@
 
 #TODO
 #(i) using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
+#    initial approach in below code (still as comment)
 #(ii) use word vectors for wi / wj instead of single words, hence, subsets such as S_one_any, etc.
-
-#regarding TODO (i) something like the following might be used to construct a corpus based tcm
-  # library(text2vec)
-  # #just a silly example for demonstration
-  # corpus <- c(paste(letters, collapse = " "), paste(c("a", letters, "b", letters), collapse = " "))
-  # it = itoken(word_tokenizer(corpus))
-  # v = create_vocabulary(it)
-  # topwords <- c("a", "b", "z")
-  # v <- v[v$term %in% topwords,]
-  # window_size <- 5
-  # tcm = create_tcm(it, vocab_vectorizer(v), skip_grams_window = window_size,  weights = rep(1, window_size))
-  # #entries of diagonal need to be adapted to create result that resembles something like cross-product
-  # diag(tcm) <- v$term_count
-  # #the final tcm might be used as reference tcm to get probabilities
-  # #formulas need to be adapted to cover cases of division by zero
-  # tcm
-#regarding TODO (ii)
-  #creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
-  #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
+      #creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
+      #adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
 
 #CREDITS / REFERENCES:
   #the first part of the code within the first if else statement to get the
@@ -78,7 +62,10 @@
 #' @export
 
 
-calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
+calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
+                            #TODO, wiwj_cooccurrence_reference = NULL for creating tcm let input be dtm OR alternatively documents with a sliding window
+                            #TODO,window_size = NULL #allow user to specify skip_grams_window (input check needed concering dtm or documents)
+                            ) {
 
 #GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS
   #case of beta coming in form of ordered words per topic (e.g. as from text2vec)
@@ -157,6 +144,19 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE) {
 
   #FIXME when using beta from text2vec as input the code only works if setting tcm to as.matrix, not sure why, yet...., see some checks in Test 1c
   tcm <- as.matrix(tcm)
+
+  #TODO allow corpus as input to be used for wi wj document cooccurrence
+  #a silly example below
+  # corpus <- c(paste(letters, collapse = " "), paste(c("a", letters, "b", letters), collapse = " "))
+  # it = itoken(word_tokenizer(corpus))
+  # v = create_vocabulary(it)
+  # topwords_unique <- c("a", "b", "z")
+  # v <- v[v$term %in% topwords,]
+  # window_size <- 5  #only for testing, provided as function argument
+  # tcm = create_tcm(it, vocab_vectorizer(v), skip_grams_window = window_size,  weights = rep(1, window_size))
+  # #entries of diagonal need to be adapted to create result that resembles something like cross-product
+  # diag(tcm) <- v$term_count
+  #TODO formulas need to be adapted regarding division by zero
 
 #CREATE SETS OF wi/wj (functions)
   #following approach was taken from textmineR package and turned into generalized function
