@@ -74,7 +74,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
   #New York, New York, USA: ACM Press, S. 399-408.
 
 
-#GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS
+#GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS (numeric input)
   #case of beta coming in form of ordered words per topic (e.g. as from text2vec)
   if (mode(beta) == "numeric") {
 
@@ -110,7 +110,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     #to be selected for coherence calculation for individual topics
     #first get idx numbers in tcm by match and then split using number of rows and n
 
-#ESTABLISH SETS OF REFERENCE INDICES FOR TCM
+#ESTABLISH SETS OF REFERENCE INDICES FOR TCM (numeric input)
     #first keep order as is for asymmetric measures
     topic_coherence[,tcm_idxs_asym := split(match(as.vector(idxs_topwords_topic), idxs_topwords_unique)
                                                 , rep(1:nrow(beta), each=n))]
@@ -131,11 +131,13 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
                                             matchreferenceorder <- match(x, idxs_topwords_unique_ord)
                                             x[order(matchreferenceorder, decreasing = TRUE)]})]
 
+#GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS (character input)
   #case of beta coming as the raw LDA result, i.e., word distribution (columns) per topic (rows)
   } else if (mode(beta) == "character") {
 
     topic_coherence <- data.table(Topic = paste0("T", 1:ncol(beta)))
-    topwords_unique <- unique(as.vector(beta))
+    topwords_topic <-  beta
+    topwords_unique <- unique(as.vector(topwords_topic))
 
     dtm_topwords <- dtm[, topwords_unique]
     if ("simple_triplet_matrix" %in% class(dtm)) {
@@ -154,11 +156,27 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     #to be selected for coherence calculation for individual topics
     #first get idx numbers in tcm by match and then split using number of rows and n
     #NOTE difference to the other else branch: ncol instead of nrow
-    topic_coherence[,tcm_idxs_asym := split(match(as.vector(beta), topwords_unique)
-                                                , rep(1:ncol(beta), each=n))]
 
-    #TODO
-    #introduce the same workaround for numeric input for reordering indices for symmetric sets
+#ESTABLISH SETS OF REFERENCE INDICES FOR TCM (character input)
+    #first keep order as is for asymmetric measures
+    topic_coherence[,tcm_idxs_asym := split(match(as.vector(topwords_topic), topwords_unique)
+                                            , rep(1:ncol(beta), each=n))]
+
+    #second assume a tcm ordered by occurence so that from left to right p(wi) > p(wj) for symmetric measures
+    #this seems like to times around the corner, maybe there is a clearer/easier way to achieve this
+    #for demonstrative details see textility/tests/experimenting_with_ordering_wiwj_combis.R
+    reorder <- order(diag(tcm),  decreasing = TRUE)
+    #tcm_ord <- tcm[reorder, reorder]# this is the assumed order of tcm, however, we only reorder reference indeces not the tcm itself
+    #reorder the column indices from high to low probability
+    topwords_unique_ord <- topwords_unique[reorder]
+    #given an ordered set of indices for an asymmetric measure, get the reference order to order this set by decreasing probability
+    topwords_unique_ord <- match(topwords_unique_ord, topwords_unique)
+
+    topic_coherence[,tcm_idxs_sym :=  lapply(tcm_idxs_asym, function(x) {
+      #check how the current order of indices matches an ordered set by probability
+      #and reorder the indices so that they fulfill this condition
+      matchreferenceorder <- match(x, topwords_unique_ord)
+      x[order(matchreferenceorder, decreasing = TRUE)]})]
   }
 
   #FIXME when using beta from text2vec as input the code only works if setting tcm to as.matrix, not sure why, yet...., see some checks in Test 1c
@@ -224,7 +242,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
     #again, in contrast, to other implementations, only intrinsic NPMI as in PMIM (for implementation with sliding window see, e.g., Bouma, 2009)
     ,npmi = function(wi, wj, ndocs, tcm) {(log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)) /  -log2((tcm[wi,wj]/ndocs) + 1e-12)}
   #DIFFERENCE
-    #assuming we use ordered tcm it follows that p(wi)>p(wj) for symmetric measure
+    #assuming we use ordered tcm it follows that p(wi)>p(wj) for ordered symmetric subset
     #to set bounds of the measures [-1,1] (1 is good)  wi/wj are switched in formula
     #this is similar to the measure of textmineR packakge, see
     #https://github.com/TommyJones/textmineR/issues/35
@@ -281,6 +299,7 @@ calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
 
   topic_coherence[,c("tcm_idxs_sym", "tcm_idxs_asym"):= NULL]
 
+  #TODO round results, currently not rounded to allow perfect comparison to stm package
   if (mean_over_topics == TRUE) {
      topic_coherence[, lapply(.SD, function(x) mean(x, na.rm = T)), .SDcols = setdiff(names(topic_coherence), "Topic")]
   }
