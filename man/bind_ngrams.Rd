@@ -11,6 +11,8 @@ bind_ngrams(string, ngrams, replacement = "_", case_insensitive = TRUE)
 
 \item{ngrams}{Character vector of known ngrams. Please note that ngrams in the \code{return} will have the case formatting of these \code{ngrams}.}
 
+\item{replacement}{A fixed pattern that shall replace blanks in ngrams. By default a dash "_".}
+
 \item{case_insensitive}{By default TRUE. Note that case is only used for matching (see ngram parameter)}
 }
 \value{
