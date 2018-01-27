@@ -2,6 +2,7 @@
 
 export(bind_ngrams)
 export(calc_coherence)
+export(cos_sim2_vectors)
 export(get_cooccurrence)
 export(replace_acronyms_by_words)
 export(split_columns)
