@@ -4,21 +4,39 @@
 \alias{get_cooccurrence}
 \title{Get the co-occurrence of column elements per row}
 \usage{
-get_cooccurrence(m, cols, format_output = as.matrix)
+get_cooccurrence(m, cols = NULL, rows = NULL, format_output = as.matrix)
 }
 \arguments{
-\item{format_output}{}
+\item{m}{A matrix object (with a document term matrix in mind) of type base::matrix, Matrix::sparseMatrix or slamm::simple_triplet_matrix.}
+
+\item{cols}{The columns to be used to get cooccurrence. By default all columns of \code{m}.}
+
+\item{rows}{The rows to be used to get cooccurrence. By default all rows of \code{m}.}
+
+\item{format_output}{Function to convert the output, by default \code{base::as.matrix()}.}
+}
+\value{
+A matrix of the specified ouput type with the (document) summed cooccurrence per row of the specified column elements of \code{m}.
 }
 \description{
-Documentation to be done....
+Get the co-occurrence of column elements per row
 }
 \examples{
-mat <- matrix(sample(1:2, 18, replace = T), nrow = 3)
-get_cooccurrence(m = mat, c(1,3,6))
-#     [,1] [,2] [,3]
-# [1,]    3    3    3
-# [2,]    3    3    3
-# [3,]    3    3    3
-get_cooccurrence(m = mat, c(1,3,6), format_output = as.simple_triplet_matrix)
+mat <- cbind(A = c(1,1,1,0), B = c(1,0,1,0), C = c(0,1,1,0))
+#      A B C D
+# [1,] 1 1 0 0
+# [2,] 1 0 1 0
+# [3,] 1 1 1 0
+# [4,] 0 0 0 0
+get_cooccurrence(mat)
+#   A B C
+# A 3 2 2
+# B 2 2 1
+# C 2 1 2
+get_cooccurrence(mat, format_output = as.simple_triplet_matrix)
 #A 3x3 simple triplet matrix.
+get_cooccurrence(mat, cols = 1:2, rows = 1:2)
+    A B
+# A 2 1
+# B 1 1
 }

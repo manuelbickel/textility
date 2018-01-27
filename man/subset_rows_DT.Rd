@@ -2,7 +2,7 @@
 % Please edit documentation in R/subset_rows_DT.R
 \name{subset_rows_DT}
 \alias{subset_rows_DT}
-\title{Subset rows of a data.table in a memory efficient way}
+\title{Subset rows of a data.table by reference}
 \usage{
 subset_rows_DT(DT, idxs, delete_idxs = FALSE)
 }
@@ -17,7 +17,7 @@ subset_rows_DT(DT, idxs, delete_idxs = FALSE)
 A positive (or negative) subset of the input \code{data.table}.
 }
 \description{
-Subset rows of a data.table in a memory efficient way
+Subset rows of a data.table by reference
 }
 \examples{
 #conditional deletion of rows
