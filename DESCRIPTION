@@ -7,9 +7,10 @@ Description: Collection of miscellaneous utility functions for text mining,
 			 Many functions wrap functionality of exisiting packages into customized functions for typical use cases
 			 or serve to speed up the functionality by parallelisation (e.g. for pos tagging).
 Depends: R (>= 3.4.3)
-License:  GPL (>= 2)
+License: GPL (>= 2)
 Encoding: UTF-8
 LazyData: true
 Imports: data.table,
-    stringi
+    stringi,
+    text2vec
 RoxygenNote: 6.0.1

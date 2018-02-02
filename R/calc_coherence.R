@@ -1,308 +1,219 @@
 
-#' Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)
+
+
+#' Calculation of various coherence measures for topic models
 #'
-#' @param dtm The term document matrix, may be a \code{sparseMatrix} or \code{simple_triplet_matrix}.
-#' @param beta Either the raw distribution of word probabilities (columnnames = words, entries = probabiliities) over topics (each row = Topic), e.g.,
-#'             as the beta@@fitted_model from package topicmodels.
-#'            Or the actual top words (entries = words) per topic (columnnames = topics), e.g.,
-#'            as the output \code{terms(fitted_model, ...)} from topicmodesl pacakge or fitted_model$get_top_words(...) from text2vec package.
-#' @param n Number of top words per topic to be used in the calculation. (if terms() or get_top_words() input is used,
-#'          the number needs to be the same as in these calls) - a better routine to check and adjust numbers will be implemented
-#' @param mean_over_topics By default FALSE to ouptut the coherence score for each topic.
-#'                         Setting to TRUE outputs mean scores over all topics. The latter is useful to compare multiple models.
+#' @param top_term_matrix A character matrix with the top words (entries = words) ranked starting with row 1 per topic (columnnames = topics). e.g.,
+#'                        For example, the output of \code{topicmodels::terms(fitted_model, ...)}  text2vec::fitted_model$get_top_words(...).
+#' @param tcm A term co-occurrence matrix that serves as reference to calculate coherence scores for the terms in \code{top_term_matrix}.
+#' @param ndocs_tcm The number of documents that served to create the \code{tcm}.
+#' @param log_smooth_constant Smoothing constant to avoid logarithm of zero in calcualtions, for example, \code{log(log_smooth_constant + 0)}.
+#'                            By default \code{.1e-12} as used by Röder et al.(palmetto).
+#'                            Use \code{1} to calaculate original UMass logratio as used by Mimno.
+#'                            Use \code{.01} to calaculate original logratio as used in stm package.
+#' @param average_over_topics By default \code{FALSE} to return coherence score for each indivual topic.
+#'                            When set to \code{TRUE} return shows the mean score over all topics.
 #'
-#' @return A \code{data.table} showing the coherence scores for different measures for each topic or mean over all topics.
+#' @return A \code{data.table} showing the various coherence scores per topic (or average over all topics).
+#' @export
 #'
 #' @examples
 #'
-#' @export
 
 
-calc_coherence <-  function(dtm, beta, n = 10, mean_over_topics = FALSE
-                            #TODO, wiwj_cooccurrence_reference = NULL for creating tcm let input be dtm OR alternatively documents with a sliding window
-                            #TODO,window_size = NULL #allow user to specify skip_grams_window (input check needed concering dtm or documents)
+calc_coherence <-  function( top_term_matrix
+                            ,tcm
+                            ,ndocs_tcm = NULL
+                            ,log_smooth_constant = .1e-12
+                            ,average_over_topics = FALSE
                             ) {
 
-
-  #####STILL A WORKING VERSION - Results may be erroneous
-
-
-  #GENERAL LOGIC
-  #1 get top N words per topic
-  #2 reduce dtm to top N word space
-  #3 create tcm with document co-occurence of top N words (binarize dtm, do cross product)
-  #(3b - divide tcm by ndocs gives probability, since some Coherence measures, e.g., UMass originally use counts,
+#GENERAL LOGIC--------------------------------------------------------
+  #STEPS PPREP_1 to PREP_3 have to be performed separately from this function
+  #PREP_1 get top N words per topic
+  #PREP_2 reduce dtm to top N word space
+  #PREP_3 create tcm with document co-occurence of top N words (binarize dtm, do cross product)
+  #(PREP_3b - divide tcm by ndocs_tcm gives probability, since some Coherence measures, e.g., UMass originally use counts,
   #      the division is done at later step)
-  #4 calculate coherence for each topic (following steps 4.x are done individually for each topic)
-  #4.1 reduce tcm to top n words
-  #4.2 create pairs of indices of wi / wj to be used for coherence calculation
-  #    Umass uses ASYMmetric combination: SUM(from m=2 to N)SUM(from l=1 to m-1) ...P(wm,wl)...
-  #    other measures use SYMmetric combination: SUM(from i=1 to N-1)SUM(from j=i+1 to N) ...P(wi,wj)...
-  #4.3 get values for all wiwj pairs from tcm and calculate coherence
-  #     e.g. pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
-  #4.4 aggregate the results via mean over number of wiwj pairs (original UMass uses counts and sum)
 
-  #NOTE: Regarding the comment in text2vec issue #229 - results are now in line with stm
-  #      I think I found a workaround to create suitable subsets, see TODOs for improvements...
+  #calculate coherence for each topic (following steps 4.x are done individually for each topic)
+  #1 reduce tcm to top n word space
+  #2 create pairs of tcm reference indices of wi / wj to be used for coherence calculation
+  #3 get values for all wiwj pairs from tcm and calculate score for each pair given a calculation rule specfied by particular coherence measure
+  #     e.g. pmi = function(wi, wj, ndocs_tcm, tcm)  {log2((tcm[wi,wj]/ndocs_tcm) + 1e-12) - log2(tcm[wi,wi]/ndocs_tcm) - log2(tcm[wj,wj]/ndocs_tcm)}
+  #4 aggregate the results via mean over number of wiwj pairs (and if desired aggreagte over all topics)
 
   #TODO
-  #(i)  using a sliding window over a corpus (usually external, e.g. Wikipedia) for document co-occurrence of top N words
-  #     initial approach in below code (still as comment)
   #(ii) use word vectors for wi / wj instead of single words, hence, subsets such as S_one_any, etc.
   #     creating, e.g., one any subsets requires to store one index against a list of indices, hence, formulas need
   #     adaption, e.g., something like tcm[unlist(wi), unlist(wj)] might work
-  #(iii)Currently indices of subsets are stored in memory, this should be turned to dynamic creation of indices, otherwise too much memory usage
-  #     the lines topic_coherence[,tcm_idxs_asym := split(match... have to be incorporated into create_wiwj_sym / create_wiwj_asym
+  #(iii)Currently indices of subsets are stored in memory, this might be turned to dynamic creation of indices to spare memory usage
+  #     the lines topic_coherence[,tcm_idxs := split(match... would have to be incorporated into create_wiwj_set
 
-  #CREDITS / REFERENCES:
-  #the first part of the code within the first if else statement to get the
-  #indices of top words per topic is largely a copy from the stm package
-  #adaptions were applied to make the code accept addtional types of input matrices
-  #Authors: Molly Roberts, Brandon Stewart and Dustin Tingley
-  #https://github.com/bstewart/stm/blob/master/R/semanticCoherence.R
-  #Furthermore, the Java implementation palmetto to calculate topic coherence served as inspiration
-  #Main Author / Maintainer: Michael R?der
-  #https://github.com/dice-group/Palmetto
-  #http://aksw.org/Projects/Palmetto.html
-  #Apart from software Authors of Palmetto have written the following paper that served as the basis for this code
+#CREDITS / REFERENCES -------------------------------------------------
+  #The following paper is the main theoretical basis for this code
   #https://dl.acm.org/citation.cfm?id=2685324
-  #R?der, Michael; Both, Andreas; Hinneburg, Alexander (2015):
-  #Exploring the Space of Topic Coherence Measures.
+  #Authors: Roeder, Michael; Both, Andreas; Hinneburg, Alexander (2015)
+  #Title: Exploring the Space of Topic Coherence Measures.
   #In: Xueqi Cheng, Hang Li, Evgeniy Gabrilovich und Jie Tang (Hg.):
   #Proceedings of the Eighth ACM International Conference on Web Search and Data Mining - WSDM '15.
   #the Eighth ACM International Conference. Shanghai, China, 02.02.2015 - 06.02.2015.
   #New York, New York, USA: ACM Press, S. 399-408.
+  #The paper has already been implemented as a Java implementation "palmetto" that exceeds the current functionality of this R implementation
+  #Main Author / Maintainer: Michael Roeder
+  #https://github.com/dice-group/Palmetto
+  #http://aksw.org/Projects/Palmetto.html
 
+  #several ideas for getting / ordering /accessing indices of tcm have been inspired by packages stm and textmineR
+  #(although, these packages use different functions to achieve the same result)
+  #stm: Molly Roberts, Brandon Stewart and Dustin Tingley
+  #https://github.com/bstewart/stm/blob/master/R/semanticCoherence.R
+  #textmineR: Tommy Jones
+  #https://github.com/TommyJones/textmineR/blob/master/R/CalcProbCoherence.R
 
-#GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS (numeric input)
-  #case of beta coming in form of ordered words per topic (e.g. as from text2vec)
-  if (mode(beta) == "numeric") {
+#INITIAL----------------------------------------------------------------------------
+  top <- as.vector(top_term_matrix)
+  top_unq <- unique(top)
+  ntopics <- ncol(top_term_matrix)
+  nterms <- nrow(top_term_matrix)
+  topic_coherence <- data.table(Topic = paste0("T", 1:ntopics))
 
-    topic_coherence <- data.table(Topic = paste0("T", 1:nrow(beta)))
-    #apply puts each result in a column, hence subset [1:n,]
-    #instead of [,1:n] which would work with the input data
-    idxs_topwords_topic <- apply(beta, 1, order, decreasing=TRUE, method = "radix")[1:n,]
-    idxs_topwords_unique <- unique(as.vector(idxs_topwords_topic))
-
-    dtm_topwords <- dtm[,idxs_topwords_unique]
-    #binarization and cross product (document co-occurrence) depending on class of matrix
-    if ("simple_triplet_matrix" %in% class(dtm)) {
-      dtm_topwords$v <- ifelse(dtm_topwords$v>1, 1, dtm_topwords$v) #binarize
-      tcm <- slam::tcrossprod_simple_triplet_matrix(t(dtm_topwords))
-    } else if ("Matrix" %in% unlist(attributes(class(dtm)))) {
-      dtm_topwords[dtm_topwords>0] <- 1
-      tcm <- Matrix::t(dtm_topwords) %*% dtm_topwords
-    } else {
-      dtm_topwords[dtm_topwords>0] <- 1
-      tcm <- t(dtm_topwords) %*% dtm_topwords
-    }
-
-    #TODO
-    #FIXME
-    #current output of the complete function is in line with stm results (asymmetric subset of indices)
-    #for symmetric sets it would be better to order tcm by word occurrence/probability as shown below
-    #so that it can always be assumed that p(wi) > p(wj) when going from left to right through tcm
-    #but then the output differs from stm (also for different sorting options of the indices in below function create_wiwj_asym)
-    #have not figured out, yet, how to best program the two options (the brute force way would be to create two different tcms, but thats a large copy)
-
-    #create list with entries that each contains the idxs of the top words
-    #that correspond to the rows (or columns) in the cooccurrence matrix
-    #to be selected for coherence calculation for individual topics
-    #first get idx numbers in tcm by match and then split using number of rows and n
-
-#ESTABLISH SETS OF REFERENCE INDICES FOR TCM (numeric input)
-    #first keep order as is for asymmetric measures
-    topic_coherence[,tcm_idxs_asym := split(match(as.vector(idxs_topwords_topic), idxs_topwords_unique)
-                                                , rep(1:nrow(beta), each=n))]
-
-    #second assume a tcm ordered by occurence so that from left to right p(wi) > p(wj) for symmetric measures
-    #this seems like to times around the corner, maybe there is a clearer/easier way to achieve this
-    #for demonstrative details see textility/tests/experimenting_with_ordering_wiwj_combis.R
-    reorder <- order(diag(tcm),  decreasing = TRUE)
-    #tcm_ord <- tcm[reorder, reorder]# this is the assumed order of tcm, however, we only reorder reference indeces not the tcm itself
-    #reorder the column indices from high to low probability
-    idxs_topwords_unique_ord <- idxs_topwords_unique[reorder]
-    #given an ordered set of indices for an asymmetric measure, get the reference order to order this set by decreasing probability
-    idxs_topwords_unique_ord <- match(idxs_topwords_unique_ord, idxs_topwords_unique)
-
-    topic_coherence[,tcm_idxs_sym :=  lapply(tcm_idxs_asym, function(x) {
-                                            #check how the current order of indices matches an ordered set by probability
-                                            #and reorder the indices so that they fulfill this condition
-                                            matchreferenceorder <- match(x, idxs_topwords_unique_ord)
-                                            x[order(matchreferenceorder, decreasing = TRUE)]})]
-
-#GET DOCUMENT CO-OCCURRENCE OF TOP N WORDS (character input)
-  #case of beta coming as the raw LDA result, i.e., word distribution (columns) per topic (rows)
-  } else if (mode(beta) == "character") {
-
-    topic_coherence <- data.table(Topic = paste0("T", 1:ncol(beta)))
-    topwords_topic <-  beta
-    topwords_unique <- unique(as.vector(topwords_topic))
-
-    dtm_topwords <- dtm[, topwords_unique]
-    if ("simple_triplet_matrix" %in% class(dtm)) {
-      dtm_topwords$v <- ifelse(dtm_topwords$v>1, 1, dtm_topwords$v) #binarize
-      tcm <- slam::tcrossprod_simple_triplet_matrix(t(dtm_topwords))
-    } else if ("Matrix" %in% unlist(attributes(class(dtm)))) {
-      dtm_topwords[dtm_topwords>0] <- 1
-      tcm <- Matrix::t(dtm_topwords) %*% dtm_topwords
-    } else {
-      dtm_topwords[dtm_topwords>0] <- 1
-      tcm <- t(dtm_topwords) %*% dtm_topwords
-    }
-
-    #create list with entries that each contains the idxs of the top words
-    #that correspond to the rows in the cooccurrence matrix
-    #to be selected for coherence calculation for individual topics
-    #first get idx numbers in tcm by match and then split using number of rows and n
-    #NOTE difference to the other else branch: ncol instead of nrow
-
-#ESTABLISH SETS OF REFERENCE INDICES FOR TCM (character input)
-    #first keep order as is for asymmetric measures
-    topic_coherence[,tcm_idxs_asym := split(match(as.vector(topwords_topic), topwords_unique)
-                                            , rep(1:ncol(beta), each=n))]
-
-    #second assume a tcm ordered by occurence so that from left to right p(wi) > p(wj) for symmetric measures
-    #this seems like to times around the corner, maybe there is a clearer/easier way to achieve this
-    #for demonstrative details see textility/tests/experimenting_with_ordering_wiwj_combis.R
-    reorder <- order(diag(tcm),  decreasing = TRUE)
-    #tcm_ord <- tcm[reorder, reorder]# this is the assumed order of tcm, however, we only reorder reference indeces not the tcm itself
-    #reorder the column indices from high to low probability
-    topwords_unique_ord <- topwords_unique[reorder]
-    #given an ordered set of indices for an asymmetric measure, get the reference order to order this set by decreasing probability
-    topwords_unique_ord <- match(topwords_unique_ord, topwords_unique)
-
-    topic_coherence[,tcm_idxs_sym :=  lapply(tcm_idxs_asym, function(x) {
-      #check how the current order of indices matches an ordered set by probability
-      #and reorder the indices so that they fulfill this condition
-      matchreferenceorder <- match(x, topwords_unique_ord)
-      x[order(matchreferenceorder, decreasing = TRUE)]})]
+#PREPARE TCM------------------------------------------------------------------------
+  #check if input tcm really contains the same elements in rows and columns
+  if ( !all.equal(rownames(tcm)[order(rownames(tcm))], colnames(tcm)[order(colnames(tcm))]) ) {
+    stop("There is a difference between the terms in rows and columns of the tcm.
+         Please check tcm, the sets of the terms have to be the same (they do not necessarily have to be in the same order).")
   }
+  #check if tcm includes all top terms
+  if ( !(length(intersect(top_unq, colnames(tcm))) == length(top_unq)) ) {
+    stop("Not all terms of top_term_matrix are included in tcm.
+          For individial topics coherence scores would be based on incomplete word sets.
+          Please adapt top term matrix or tcm to ensure full intersection of terms.")
+  }
+  #reduce tcm to top word space (makes tcm symmetric)
+  tcm <- tcm[top_unq, top_unq]
+  #order tcm by term probability (entries in diagonal)
+  #from left to right the probability of terms follows the rule p(tcm[i,i]) > p(tcm[i+1,i+1])
+  #ordering tcm is relevant for asymmetric measures that require a certain order
+  #some asymmetric measures require the original order in the topic (e.g. UMass),
+  #which is therefore also stored for re-mapping indices of tcm to this order
+  prob_order <- order(diag(tcm),  decreasing = TRUE)
+  tcm <- tcm[prob_order, prob_order]
+  restore_topic_order <- match(top_unq, colnames(tcm))
 
-  #FIXME when using beta from text2vec as input the code only works if setting tcm to as.matrix, not sure why, yet...., see some checks in Test 1c
+  #TODO
+  #when (input) tcm is a (larger) sparse matrix the code is quite slow
+  #speed of frequent subsetting of tcm is probably the bottleneck
+  #since tcm is limited on top n word space its size is probably not incredibly large at this point
+  #hence, workaround by using as.matrix seems acceptable in the first step
   tcm <- as.matrix(tcm)
 
-  #TODO allow corpus as input to be used for wi wj document cooccurrence
-  #a silly example below
-  # corpus <- c(paste(letters, collapse = " "), paste(c("a", letters, "b", letters), collapse = " "))
-  # it = itoken(word_tokenizer(corpus))
-  # v = create_vocabulary(it)
-  # topwords_unique <- c("a", "b", "z")
-  # v <- v[v$term %in% topwords,]
-  # window_size <- 5  #only for testing, provided as function argument
-  # tcm = create_tcm(it, vocab_vectorizer(v), skip_grams_window = window_size,  weights = rep(1, window_size))
-  # #entries of diagonal need to be adapted to create result that resembles something like cross-product
-  # diag(tcm) <- v$term_count
-  #TODO formulas need to be adapted regarding division by zero
+#GET REFERENCE INDICES OF TOP TERMS IN TCM FOR EACH TOPIC---------------------------
+  #credits for this approach of getting indices go to authors of stm package
+  topic_coherence[,tcm_idxs := split(match(top, colnames(tcm))
+                                     , rep(1:ntopics, each=nterms))]
 
-#CREATE SETS OF wi/wj (functions)
-  #following approach was taken from textmineR package and turned into generalized function
-  #to create indices of token combinations to extract their probabilities from tcm to calcualte, e.g, P(wi|wj))
-  #resembles utils::combn(idxs, 2) but is slightly faster for higher number of idxs
-  #another base R implementation via grid() is used in stm package
-  #S_one_one - all word pair combinations
-  create_wiwj_sym <- function(idxs) {
-    #from high to low prob, so that p(wi) > p(wj) starting from the left in the tcm
-    #idxs <- sort(idxs, decreasing = FALSE)
-      do.call(rbind,
-            sapply(1:(length(idxs)-1), function(x) {
-              cbind(wi = rep(idxs[x], length(idxs[(x + 1):length(idxs)]))
-                    ,wj = idxs[(x + 1):length(idxs)])
-            } , USE.NAMES = F))
-     }
-  #S_one_pre - required for asymmetric UMass measure
-  create_wiwj_asym <- function(idxs) {
-    #to comply with stm results idxs have to be reorderd
-    idxs <- idxs[order(idxs, decreasing = F, method = "radix")]
-    do.call(rbind,
-            sapply(2:length(idxs), function(x) {
-              cbind(wi = rep(idxs[x], length(idxs[1:length(idxs[1:(x-1)])]))
-                    ,wj = idxs[1:length(idxs[1:(x-1)])])
-            }, USE.NAMES = FALSE))
+#FUNCTION TO CREATE SETS OF wi/wj------------------------------------------------------------
+  #order of indices in S_one_pre and S_one_suc matters for asymmetric measures
+  #S_one_pre follows the logic SUM(from i=2 to N)SUM(from j=1 to i-1)
+  #S_one_suc follows the logic: SUM(from i=1 to N-1)SUM(from j=i+1 to N)
+  #Note that there are two options for sets:
+  #(i) sets that build on the original order of terms per topic
+  #(ii) sets that build on the terms per topic, however, ordered by probability
+
+  create_wiwj_set <- function(idxs, set_type = "one_suc",  alternative_order) {
+    if (set_type == "one_pre") {
+    wiwj <- t(combn(idxs,2, FUN = function(x) sort(x, decreasing = TRUE)))
+    } else if (set_type == "one_suc") {
+    wiwj <- t(combn(idxs,2, FUN = function(x) sort(x, decreasing = FALSE)))
+    } else if (set_type == "one_pre_topic_order") {
+      #for asymmetric sets the original order of words (hence, indexes of tcm) has to be restored
+      # idxs <- unlist(topic_coherence[1,2])
+      # alternative_order =  restore_topic_order
+      reorder <- order(match(idxs, alternative_order), decreasing = TRUE)
+      idxs <- idxs[reorder]
+      ##in contrast to the other subsets, no additional reordering of indices
+      #to maintain original topic order
+      wiwj <- t(combn(idxs,2))
     }
+    colnames(wiwj) <- c("wi", "wj")
+    return(wiwj)
+  }
 
-#DEFINITION OF COHERENCE MEASURES
+#DEFINITION OF COHERENCE MEASURES------------------------------------------------------------
+  #TODO
+  #more convenient interface for defintion of coherence functions might be established
+  #e.g. by defining them as reference class, this would also allow more flexible definition of additional measures by user
   coh_funs <- list(
-  #LOG-RATIO
-    #with smoothing parameter = 1, resembles UMAss
-    #note the lgrat_UMass is the original formula used by Mimno
-    lgrat_UMass = function(wi, wj, ndocs, tcm) {log(1 + tcm[wi,wj]) - log(1 + tcm[wj,wj])}
-    ,prob_lgrat = function(wi, wj, ndocs, tcm)  {log(1 + (tcm[wi,wj]/ndocs)) - log(tcm[wj,wj]/ndocs)}
-  #LOG-RATIO SMOOTHED
-    #with adapted smoothing parameter (used in stm package)
-    ,lgrat_UMassep.01 =  function(wi, wj, ndocs, tcm)  {log(.01 + tcm[wi,wj]) - log(.01 + tcm[wj,wj])}
-    #PROBABILISTIC LOG-RATIO with seven mall smoothing constant as in above mentioned paper by Röder
-    ,prob_lgrat_ep1em12 =  function(wi, wj, ndocs, tcm)  {log(.1e-12 + (tcm[wi,wj]/ndocs)) - log(tcm[wj,wj]/ndocs)}
-  #PMI
-    ##note: UCI is also based on PMI, however, UCI uses external context vector of words constructed from Wikipedia
-    #in the following only intrinsic PMI without sliding window (in other words window = whole document)
+    #LOG-RATIO
+    logratio_UMass = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant) {log(log_smooth_constant + tcm[wi,wj]) - log(log_smooth_constant + tcm[wj,wj])}
+                         ,set_type = "one_pre_topic_order"
+                         ,aggr_fun = "function(x) sum(x, na.rm = T)")
+    #smoothing parameter = 1 resembles UMAss, .01 resembles stm package, default as in paper by Röder, i.e. .1e-12
+    ,logratio = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant) {log(log_smooth_constant + tcm[wi,wj]) - log(log_smooth_constant + tcm[wj,wj])}
+                         ,set_type = "one_pre"
+                         ,aggr_fun = "function(x) sum(x, na.rm = T)")
+    ,prob_logratio = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant)  {log(log_smooth_constant + (tcm[wi,wj]/ndocs_tcm)) - log(tcm[wj,wj]/ndocs_tcm)}
+                               ,set_type = "one_pre"
+                               ,aggr_fun = "function(x) mean(x, na.rm = T)")
+    #PMI
     #format of PMI formula proposed by @andland - https://github.com/dselivanov/text2vec/issues/236
-    ,pmi = function(wi, wj, ndocs, tcm)  {log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)}
+    ,pmi = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant)  {log2((tcm[wi,wj]/ndocs_tcm) + log_smooth_constant) - log2(tcm[wi,wi]/ndocs_tcm) - log2(tcm[wj,wj]/ndocs_tcm)}
+                     ,set_type = "one_pre"
+                     ,aggr_fun = "function(x) mean(x, na.rm = T)")
     #NORMALIZED PMI
     #again, in contrast, to other implementations, only intrinsic NPMI as in PMIM (for implementation with sliding window see, e.g., Bouma, 2009)
-    ,npmi = function(wi, wj, ndocs, tcm) {(log2((tcm[wi,wj]/ndocs) + 1e-12) - log2(tcm[wi,wi]/ndocs) - log2(tcm[wj,wj]/ndocs)) /  -log2((tcm[wi,wj]/ndocs) + 1e-12)}
-  #DIFFERENCE
-    #assuming we use ordered tcm it follows that p(wi)>p(wj) for ordered symmetric subset
+    ,npmi = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant) {(log2((tcm[wi,wj]/ndocs_tcm) + log_smooth_constant) - log2(tcm[wi,wi]/ndocs_tcm) - log2(tcm[wj,wj]/ndocs_tcm)) /  -log2((tcm[wi,wj]/ndocs_tcm) + log_smooth_constant)}
+                      ,set_type = "one_pre"
+                      ,aggr_fun = "function(x) mean(x, na.rm = T)")
+    #DIFFERENCE
+    #assuming we use ordered tcm it follows that p(wi)>p(wj)
     #to set bounds of the measures [-1,1] (1 is good)  wi/wj are switched in formula
-    #this is similar to the measure of textmineR packakge, see
-    #https://github.com/TommyJones/textmineR/issues/35
-    ,dif_wjwi = function(wi, wj, ndocs, tcm) {tcm[wj,wi]/tcm[wj,wj] - (tcm[wj,wj]/ndocs)}
+    #this is similar to the measure of textmineR package https://github.com/TommyJones/textmineR/issues/35
+    ,prob_dif = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant) {tcm[wj,wi]/tcm[wj,wj] - (tcm[wj,wj]/ndocs_tcm)}
+                          ,set_type = "one_suc"
+                          ,aggr_fun = "function(x) mean(x, na.rm = T)")
   )
 
-#CALCULATE COHERENCE
-  #wrapper function taking coherence function and parameters as input
-  #TODO coh_funs needs to be passed to the function as argument, later steps would be less verbose when fetching it from the functioni environment -> scoping
-  calc_coh <- function(ndocs = nrow(dtm), tcm, idxs, wiwj_comb_fun, coh_funs = coh_funs, coh_measure, aggr_fun = function(x) {mean(x, na.rm = T)}) {
-    wiwj_idxs <- wiwj_comb_fun(idxs)
-    res <- mapply(function(x,y) coh_funs[[coh_measure]](x,y, tcm = tcm, ndocs = ndocs), wiwj_idxs[,"wi"], wiwj_idxs[,"wj"])
-    aggr_fun(res)
+#WRAPPER FUNCTION TO CALCULATE COHERENCE-------------------------------------------------------
+  #TODO coh_funs and other args need to be passed to the function as argument,
+  #later steps would be less verbose when fetching several or the arguments,e.g., tcm, from the function environment -> scoping
+  calc_coh <- function( idxs
+                       , tcm
+                       , coh_funs = coh_funs
+                       , ndocs_tcm
+                       , coh_measure
+                       , log_smooth_constant = log_smooth_constant
+                       , alternative_order
+                         ) {
+    #select coherence function from the ones availble
+    coh_fun <- coh_funs[[coh_measure]]
+    #define the wi wj set
+    coh <- as.data.table(create_wiwj_set(idxs, set_type = attr(coh_fun, "set_type"), alternative_order = alternative_order))
+    #calculate score for each pair of wi wj
+    coh[, coh_res:= mapply(function(x,y) coh_fun(x,y, tcm = tcm, ndocs_tcm = ndocs_tcm, log_smooth_constant = log_smooth_constant),wi, wj)]
+    #aggregate
+    aggr_fun <- eval(parse(text = attr(coh_fun, "aggr_fun")))
+    coh[, round(aggr_fun(coh_res), d = 4)]
   }
 
-  #calculate coherence for selected combinations of coherence functions and calculation options
-  #https://stackoverflow.com/questions/11680579/assign-multiple-columns-using-in-data-table-by-group
-  #TODO more automated version that selects argument inputs according to selected coherence function, maybe define functions as class...
-  use_sym_mean <- setdiff(names(coh_funs), c("lgrat_UMass", "lgrat_ep.01"))
-  topic_coherence[,   (use_sym_mean):= sapply(use_sym_mean, function(f) {
-    lapply(tcm_idxs_sym, function(x) {
-      calc_coh(tcm = tcm
-               , idxs = x
-               , coh_measure = f
-               , coh_funs = coh_funs
-               , wiwj_comb_fun = create_wiwj_sym)
-    })
-  }, USE.NAMES = F), by = Topic]
-
-  use_asym_mean <- c("lgrat_UMass", "lgrat_UMassep.01")
-  topic_coherence[,   (use_asym_mean):= sapply(use_asym_mean, function(f) {
-    lapply(tcm_idxs_asym, function(x) {
-      calc_coh(tcm = tcm
-               ,idxs = x
-               ,coh_measure = f
-               ,coh_funs = coh_funs
-               , wiwj_comb_fun = create_wiwj_asym
-               )
-    })
-  }, USE.NAMES = F), by = Topic]
-
-  #for comparison to original implementation of approaches by Mimno or stm package
-  use_asym_sum <- c("lgrat_UMass", "lgrat_UMassep.01")
-  topic_coherence[,   paste0(use_asym_sum, "_orig"):= sapply(use_asym_sum, function(f) {
-    lapply(tcm_idxs_asym, function(x) {
-      calc_coh(tcm = tcm
-               ,idxs = x
-               ,coh_measure = f
-               ,coh_funs = coh_funs
-               ,wiwj_comb_fun = create_wiwj_asym
-               ,aggr_fun = function(x) sum(x))
-    })
-  }, USE.NAMES = F), by = Topic]
-
-  topic_coherence[,c("tcm_idxs_sym", "tcm_idxs_asym"):= NULL]
-
-  #TODO round results, currently not rounded to allow perfect comparison to stm package
-  if (mean_over_topics == TRUE) {
-     topic_coherence[, lapply(.SD, function(x) mean(x, na.rm = T)), .SDcols = setdiff(names(topic_coherence), "Topic")]
+#CALCULATE COHERENCE----------------------------------------------------------------
+  for (i in names(coh_funs)) {
+    topic_coherence[,(i):= lapply(tcm_idxs, function(x) {
+                                     calc_coh( idxs = x, coh_measure = i
+                                    , tcm = tcm
+                                    , coh_funs = coh_funs
+                                    , ndocs_tcm = ndocs_tcm
+                                    , log_smooth_constant = log_smooth_constant
+                                    , alternative_order = restore_topic_order)})
+                    , by = Topic]
   }
 
+  topic_coherence[, tcm_idxs := NULL]
+
+  if (average_over_topics == TRUE) {
+     topic_coherence[, lapply(.SD, function(x) round(mean(x, na.rm = T), d = 4)), .SDcols = setdiff(names(topic_coherence), "Topic")]
+  }
   return(topic_coherence[])
 }
+

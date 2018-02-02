@@ -2,29 +2,32 @@
 % Please edit documentation in R/calc_coherence.R
 \name{calc_coherence}
 \alias{calc_coherence}
-\title{Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)}
+\title{Calculation of various coherence measures for topic models}
 \usage{
-calc_coherence(dtm, beta, n = 10, mean_over_topics = FALSE)
+calc_coherence(top_term_matrix, tcm, ndocs_tcm = NULL,
+  log_smooth_constant = 1e-13, average_over_topics = FALSE)
 }
 \arguments{
-\item{dtm}{The term document matrix, may be a \code{sparseMatrix} or \code{simple_triplet_matrix}.}
+\item{top_term_matrix}{A character matrix with the top words (entries = words) ranked starting with row 1 per topic (columnnames = topics). e.g.,
+For example, the output of \code{topicmodels::terms(fitted_model, ...)}  text2vec::fitted_model$get_top_words(...).}
 
-\item{beta}{Either the raw distribution of word probabilities (columnnames = words, entries = probabiliities) over topics (each row = Topic), e.g.,
- as the beta@fitted_model from package topicmodels.
-Or the actual top words (entries = words) per topic (columnnames = topics), e.g.,
-as the output \code{terms(fitted_model, ...)} from topicmodesl pacakge or fitted_model$get_top_words(...) from text2vec package.}
+\item{tcm}{A term co-occurrence matrix that serves as reference to calculate coherence scores for the terms in \code{top_term_matrix}.}
 
-\item{n}{Number of top words per topic to be used in the calculation. (if terms() or get_top_words() input is used,
-the number needs to be the same as in these calls) - a better routine to check and adjust numbers will be implemented}
+\item{ndocs_tcm}{The number of documents that served to create the \code{tcm}.}
 
-\item{mean_over_topics}{By default FALSE to ouptut the coherence score for each topic.
-Setting to TRUE outputs mean scores over all topics. The latter is useful to compare multiple models.}
+\item{log_smooth_constant}{Smoothing constant to avoid logarithm of zero in calcualtions, for example, \code{log(log_smooth_constant + 0)}.
+By default \code{.1e-12} as used by Röder et al.(palmetto).
+Use \code{1} to calaculate original UMass logratio as used by Mimno.
+Use \code{.01} to calaculate original logratio as used in stm package.}
+
+\item{average_over_topics}{By default \code{FALSE} to return coherence score for each indivual topic.
+When set to \code{TRUE} return shows the mean score over all topics.}
 }
 \value{
-A \code{data.table} showing the coherence scores for different measures for each topic or mean over all topics.
+A \code{data.table} showing the various coherence scores per topic (or average over all topics).
 }
 \description{
-Calculation of various coherence measures for topic models based on Latent Dirichlet Allocation (LDA)
+Calculation of various coherence measures for topic models
 }
 \examples{
 

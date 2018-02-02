@@ -36,7 +36,7 @@ sparse_to_stm <- function(x, keep_rownames = TRUE) {
     doc_names <- NULL
   }
   out$documents <- lapply(text2vec::as.lda_c(x), function(y){
-    y[1,] <- y[1,]+1
+    y[1,] <- y[1,]+1L
     return(y)
   })
   names(out$documents) <- doc_names
