@@ -220,7 +220,7 @@ calc_coherence <-  function( top_term_matrix
   topic_coherence[, tcm_idxs := NULL]
 
   if (average_over_topics == TRUE) {
-     topic_coherence[, lapply(.SD, function(x) round(mean(x, na.rm = T), d = 4)), .SDcols = setdiff(names(topic_coherence), "Topic")]
+    topic_coherence <- topic_coherence[, lapply(.SD, function(x) round(mean(x, na.rm = T), d = 4)), .SDcols = setdiff(names(topic_coherence), "Topic")]
   }
   return(topic_coherence[])
 }

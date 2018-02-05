@@ -2588,7 +2588,7 @@ if (any(Matrix::rowSums(dtm) == 0)) {
 
 dtm_tripl <- slam::as.simple_triplet_matrix(dtm)
 # save(dtm_tripl, file = paste0(dirres, "dtm_tripl.rda"))
-# load(file = paste0(dirres, "dtm_tripl.rda"))
+ load(file = paste0(dirres, "dtm_tripl.rda"))
 
 
 #save / load image -------------------------------------
@@ -2890,28 +2890,7 @@ fit_stm_vary_k_parallel <-       function(dtm_stm
 
 # investigate models ------------------------------------------------------
 
-top_term_mat <- make_top_term_matrix(topic_word_distribution, 2, terms = c("A", "B", "C", "D"))
-# top_term_mat <- structure(c("A", "B", "C", "B", "B", "A")
-#                           , .Dim = 2:3, .Dimnames = list(NULL, c("T1", "T2", "T3")))
-dtm_top_terms <- dtm_tripl[,(unique(as.vector(top_term_mat)))]
-# dtm_top_terms <- structure(c(1, 2, 3, 0, 0, 4, 0, 5, 0, 0, 0, 6, 7, 8, 0)
-#                             , .Dim = c(5L, 3L), .Dimnames = list(NULL, c("A", "B", "C")))
-tcm_top_terms <- get_cooccurrence(dtm_top_terms)
-# tcm_top_terms <- structure(c(3, 2, 2, 2, 2, 1, 2, 1, 3)
-# , .Dim = c(3L, 3L), .Dimnames = list(c("A", "B", "C"), c("A", "B", "C")))
-tcm <- tcm_top_terms
-top_term_matrix <- top_term_mat
-
-calc_coherence( tcm = tcm
-                , top_term_matrix = top_term_matrix
-                , average_over_topics = FALSE
-                , log_smooth_constant = .01 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
-                , ndocs = nrow(dtm))
-
-
-
-
-modelfiles <- paste0(dirmod, list.files(gsub("models/", "models2/", dirmod)
+modelfiles <- paste0(gsub("models/", "models2/", dirmod), list.files(gsub("models/", "models2/", dirmod)
                                         , pattern = "k\\d+.+model\\.rda"))
 #order by number of k
 modelfiles <- modelfiles[order(as.numeric(unlist(stri_extract_all_regex(modelfiles, "(?<=/k)\\d+(?=_)")))
@@ -2927,7 +2906,7 @@ modelfiles <- modelfiles[order(as.numeric(unlist(stri_extract_all_regex(modelfil
 check_model_quality <-                function(  modelfiles
                                                 , dtm_tripl
                                                 , ncores
-                                                , n_topterms_per_topic = 5
+                                                , n_topterms_per_topic = 20
 ) {
   cluster <- makeCluster(ncores)
   registerDoParallel(cluster)
@@ -2960,12 +2939,34 @@ check_model_quality <-                function(  modelfiles
     }
 
 
+
         #get quality measures
 model_quality <- data.table(
                   modeltype = class(fitted)
                   ,ntopics = fitted@k
                   ,loglik =  fitted@loglikelihood
                   )
+
+
+top_term_mat <- make_top_term_matrix(beta = beta, n = n_topterms_per_topic, terms = terms)
+
+
+dtm_top_terms <- dtm_tripl[,(unique(as.vector(top_term_mat)))]
+# dtm_top_terms <- structure(c(1, 2, 3, 0, 0, 4, 0, 5, 0, 0, 0, 6, 7, 8, 0)
+#                             , .Dim = c(5L, 3L), .Dimnames = list(NULL, c("A", "B", "C")))
+tcm_top_terms <- get_cooccurrence(dtm_top_terms)
+# tcm_top_terms <- structure(c(3, 2, 2, 2, 2, 1, 2, 1, 3)
+# , .Dim = c(3L, 3L), .Dimnames = list(c("A", "B", "C"), c("A", "B", "C")))
+tcm <- tcm_top_terms
+top_term_matrix <- top_term_mat
+
+calc_coherence( tcm = tcm
+                , top_term_matrix = top_term_matrix
+                , average_over_topics = FALSE
+                , log_smooth_constant = .01 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
+                , ndocs = nrow(dtm))
+
+
 
 
     return(model_quality)
