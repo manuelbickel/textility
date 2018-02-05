@@ -1,11 +1,10 @@
 #' Create a top terms per topic (or document) matrix from a numeric term per topic (or document) distribution
 #'
-#' The function achives the same as, e.g., topicmodels::terms or text2vec or text2vec::lda$get_top_words
-#' but takes a raw matrix as input instead of a native model object of a specific package. Hence, it may not only be used to
-#' produce top n words per topic given the "raw" word probabilities per topic object of an LDA model ( words as columns,
-#' topics as rows, entries are word probabilities) but might also help to find top n words per document given a
-#' document term matrix. Basically the function orders the elements of a matrix per row and returns
-#' the actual top n column items per row.
+#' The function orders the elements of a matrix per row and returns the actual top n corresponding column items per row.
+#' It achieves the same as, e.g., topicmodels::terms or text2vec or text2vec::get_top_words
+#' but takes a raw matrix as input instead of a native model object of a specific package.
+#' Hence, apart from getting top n words per topic from a "raw" word probabilities per topic object of an LDA model (words as columns,
+#' topics as rows, entries are word probabilities) but might also help to find top n words per document given a document term matrix.
 #'
 #' @param beta A numeric matrix object (incl. base::matrix, Matrix::sparse, slam::simple_triplet_matrix).
 #' @param n Number of top n terms per row to take into account. By default 10.

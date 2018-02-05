@@ -104,7 +104,15 @@ calc_coherence <-  function( top_term_matrix
   #TODO
   #when (input) tcm is a (larger) sparse matrix the code is quite slow
   #speed of frequent subsetting of tcm is probably the bottleneck
-  #since tcm is limited on top n word space its size is probably not incredibly large at this point
+  #since tcm is limited on top n word space its size is usually not incredibly large at this point
+  #example: 1000 topics with top 20 words would be about 1 Mb
+  # format(object.size(
+  #     lapply(1:1000, function(x) {
+  #       sapply(1:20, function(y) {
+  #        paste(sample(letters, 7), collapse = "")
+  #       })
+  #     })
+  #   ), units = "Mb")
   #hence, workaround by using as.matrix seems acceptable in the first step
   tcm <- as.matrix(tcm)
 
