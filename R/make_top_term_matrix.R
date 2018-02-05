@@ -28,7 +28,7 @@ make_top_term_matrix <- function(beta, n = 10, terms = NULL) {
   }
   if(!is.null(terms)) {
     if (!is.null(colnames(beta))) {
-      if ((colnames(beta) !=  terms)) {
+      if (!identical(colnames(beta), terms)) {
         warning("Beta has colnames that have been overwritten by the names provided by the terms parameter.")
       }
     }
