@@ -92,10 +92,6 @@ coherence_t2v <- calc_coherence( tcm = tcm_tt_t2v
                 , log_smooth_constant =  .01#.1e-12 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
                 , ndocs = nrow(dtm_t2v))
 
-#works, at least no error...
-#TODO
-#however, quite slow, internally if tcm is a sparseMatrix, subsetting seems to be slow
-
 #1c - difference between text2vec vs topicmodels ---------------------------------------------------------------
 #compare input dtm
 all(dim(dtm_t2v) == dim(dtm))
