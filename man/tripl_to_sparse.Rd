@@ -4,13 +4,15 @@
 \alias{tripl_to_sparse}
 \title{Simple triple matrix to sparse matrix}
 \usage{
-tripl_to_sparse(simple_triplet_matrix)
+tripl_to_sparse(simple_triplet_matrix, giveCsparse = TRUE)
 }
 \arguments{
 \item{simple_triplet_matrix}{A simple_triplet_matrix as used in package slam.}
+
+\item{giveCsparse}{By default \code {TRUE}. Set to \code{FALSE} if a \code{dgTMatrix} shall be returned instead of a \code{dgCMatrix}.}
 }
 \value{
-sparseMatrix as used in package Matrix.
+\code{sparseMatrix} from package Matrix.
 }
 \description{
 Simple triple matrix to sparse matrix

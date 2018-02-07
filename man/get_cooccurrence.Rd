@@ -4,24 +4,18 @@
 \alias{get_cooccurrence}
 \title{Get the co-occurrence of column elements per row entity (e.g. document co-occurrence of terms)}
 \usage{
-get_cooccurrence(x, binarize = TRUE, threshold = 1, format_output = NULL)
+get_cooccurrence(m, binarize = TRUE, threshold = 1)
 }
 \arguments{
-\item{x}{A matrix (with a document term matrix containing integer counts in mind) of type base::matrix, Matrix::sparseMatrix or slamm::simple_triplet_matrix.}
+\item{binarize}{By default \code{TRUE}. Values larger than the set threshold are turned to \code{1}, lower values are turned to \code{0}.}
 
-\item{binarize}{By default \code{TRUE}. Values larger the set threshold are turned to \code{1}, lower values are turned to \code{0}.}
-
-\item{threshold}{By default \code{1}. See \code{binarize} parameter for effect of parameter.
+\item{threshold}{Threshold for binarization. By default \code{1}.
 If input is not an integer matrix of counts but, e.g., a probability matrix, a threshold such as 0.5 might be reasonable.}
 
-\item{format_output}{Function to be applied on the output, e.g., turning into the desired class.
-By default \code{NULL}, which maintains the class produced by the native transpose crossproduct function
-associated with the input class (e.g. slam::tcrossprod_simple_triplet_matrix).
-An exemplary function for formatting output from the \code{as.y} family would be \code{base::as.matrix}.
-Please remember that regarding type conversion some input types might require more complex conversion functions from the \code{x_to_y} family.}
+\item{x}{A matrix object (with a document term matrix containing integer counts in mind). Currently accepts base::matrix, Matrix::sparseMatrix or slam::simple_triplet_matrix.}
 }
 \value{
-A matrix of the specified ouput type with the summed (document) cooccurrence per row of the specified column elements (words) of \code{m}.
+A \code{sparseMatrix} with the summed (document) co-occurrence per row of the specified column elements (words) of \code{x}.
 }
 \description{
 Get the co-occurrence of column elements per row entity (e.g. document co-occurrence of terms)
@@ -40,9 +34,7 @@ get_cooccurrence(mat)
 # C 2 1 2
 get_cooccurrence(mat, binarize = FALSE)
 #   A B C
-# A 6 5 2  <- note the difference reagrding A and B
+# A 6 5 2  <- note the difference regarding A and B
 # B 5 5 1
 # C 2 1 2
-get_cooccurrence(mat, format_output = slam::as.simple_triplet_matrix)
-#A 3x3 simple triplet matrix.
 }
