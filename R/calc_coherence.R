@@ -97,10 +97,13 @@ calc_coherence <-  function( top_term_matrix
   #ordering tcm is relevant for asymmetric measures that require a certain order
   #some asymmetric measures require the original order in the topic (e.g. UMass),
   #which is therefore also stored for re-mapping indices of tcm to this order
-  prob_order <- order(diag(tcm),  decreasing = TRUE)
+  if ("Matrix" %in% unlist(attributes(class(tcm)))) {
+    prob_order <- order(Matrix::diag(tcm),  decreasing = TRUE)
+  } else {
+    prob_order <- order(diag(tcm),  decreasing = TRUE)
+  }
   tcm <- tcm[prob_order, prob_order]
   restore_topic_order <- match(top_unq, colnames(tcm))
-
   #TODO ?
   #when (input) tcm is a (larger) sparse matrix the code is quite slow
   #speed of frequent subsetting of sparse tcm is the bottleneck, example:
