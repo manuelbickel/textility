@@ -101,9 +101,20 @@ calc_coherence <-  function( top_term_matrix
   tcm <- tcm[prob_order, prob_order]
   restore_topic_order <- match(top_unq, colnames(tcm))
 
-  #TODO
+  #TODO ?
   #when (input) tcm is a (larger) sparse matrix the code is quite slow
-  #speed of frequent subsetting of tcm is probably the bottleneck
+  #speed of frequent subsetting of sparse tcm is the bottleneck, example:
+  # m <- cbind(A = c(1,0,0,0), B = c(1,0,0,0), C = c(0,0,0,1))
+  # m.sp <- Matrix(m, sparse = T)
+  # microbenchmark::microbenchmark(
+  #   m[3,3],
+  #   m.sp[3,3]
+  # )
+  # Unit: nanoseconds
+  # expr    min       lq      mean median     uq    max neval
+  # m[3, 3]    790    791.0   1492.89   1579   1580  13817   100
+  # m.sp[3, 3] 144480 147637.5 152647.01 148822 150401 367514   100
+
   #since tcm is limited on top n word space its size is usually not incredibly large at this point
   #example: 1000 topics with top 20 words would be about 1 Mb
   # format(object.size(
@@ -113,7 +124,7 @@ calc_coherence <-  function( top_term_matrix
   #       })
   #     })
   #   ), units = "Mb")
-  #hence, workaround by using as.matrix seems acceptable in the first step
+  #hence, workaround using base::matrix for faster subsetting instead of sparseMatrix seems acceptable
   tcm <- as.matrix(tcm)
 
 #GET REFERENCE INDICES OF TOP TERMS IN TCM FOR EACH TOPIC---------------------------

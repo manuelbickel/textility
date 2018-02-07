@@ -2588,7 +2588,7 @@ if (any(Matrix::rowSums(dtm) == 0)) {
 
 dtm_tripl <- slam::as.simple_triplet_matrix(dtm)
 # save(dtm_tripl, file = paste0(dirres, "dtm_tripl.rda"))
- load(file = paste0(dirres, "dtm_tripl.rda"))
+# load(file = paste0(dirres, "dtm_tripl.rda"))
 
 
 #save / load image -------------------------------------
@@ -2944,27 +2944,20 @@ check_model_quality <-                function(  modelfiles
 model_quality <- data.table(
                   modeltype = class(fitted)
                   ,ntopics = fitted@k
+                  ,ntopterms = n_topterms_per_topic
                   ,loglik =  fitted@loglikelihood
                   )
 
 
 top_term_mat <- make_top_term_matrix(beta = beta, n = n_topterms_per_topic, terms = terms)
+tcm_top_terms <- get_cooccurrence(dtm_tripl[,(unique(as.vector(top_term_mat)))])
 
-
-dtm_top_terms <- dtm_tripl[,(unique(as.vector(top_term_mat)))]
-# dtm_top_terms <- structure(c(1, 2, 3, 0, 0, 4, 0, 5, 0, 0, 0, 6, 7, 8, 0)
-#                             , .Dim = c(5L, 3L), .Dimnames = list(NULL, c("A", "B", "C")))
-tcm_top_terms <- get_cooccurrence(dtm_top_terms)
-# tcm_top_terms <- structure(c(3, 2, 2, 2, 2, 1, 2, 1, 3)
-# , .Dim = c(3L, 3L), .Dimnames = list(c("A", "B", "C"), c("A", "B", "C")))
-tcm <- tcm_top_terms
-top_term_matrix <- top_term_mat
-
-calc_coherence( tcm = tcm
-                , top_term_matrix = top_term_matrix
-                , average_over_topics = FALSE
-                , log_smooth_constant = .01 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
-                , ndocs = nrow(dtm))
+model_quality <- cbind(model_quality, calc_coherence( tcm = tcm_top_terms
+                , top_term_matrix = top_term_mat
+                , average_over_topics = TRUE
+                #, log_smooth_constant = .01 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
+                , ndocs_tcm = nrow(dtm_tripl))
+                )
 
 
 
@@ -2976,10 +2969,24 @@ calc_coherence( tcm = tcm
 }
 
 
+model_quality <- do.call(rbindlist, lapply(c(10
+                                             #,25
+                                             #,50
+                                             #,75
+                                             ), function(n) {
+
+  check_model_quality( modelfiles = modelfiles
+                       , dtm_tripl = dtm_tripl
+                       , ncores = parallel::detectCores()
+                       , n_topterms_per_topic = n
+                        )
+
+}))
+
 model_quality  <- check_model_quality( modelfiles = modelfiles
                                        , dtm_tripl = dtm_tripl
                                        , ncores = parallel::detectCores()
-                                       , n_topterms_per_topic = c(5,10,15,25,50,75))
+                                       , n_topterms_per_topic = c(10,25,50,75))
 
 
 #exclusivity does not seem to be a good measure
