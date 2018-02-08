@@ -4,15 +4,15 @@
 #' Calculation of various coherence measures for topic models
 #'
 #' @param top_term_matrix A character matrix with the top words (entries = words) ranked starting with row 1 per topic (columnnames = topics). e.g.,
-#'                        For example, the output of \code{topicmodels::terms(fitted_model, ...)}  text2vec::fitted_model$get_top_words(...).
+#'                        For example, the output of \code{topicmodels::terms} or text2vec::get_top_words(...).
 #' @param tcm A term co-occurrence matrix that serves as reference to calculate coherence scores for the terms in \code{top_term_matrix}.
-#' @param ndocs_tcm The number of documents that served to create the \code{tcm}.
+#' @param ndocs_tcm The number of documents that served to create the \code{tcm} to calculate probabilities from counts in the\code{tcm} used as input to some coherence measures.
 #' @param log_smooth_constant Smoothing constant to avoid logarithm of zero in calcualtions, for example, \code{log(log_smooth_constant + 0)}.
 #'                            By default \code{.1e-12} as used by Röder et al.(palmetto).
-#'                            Use \code{1} to calaculate original UMass logratio as used by Mimno.
-#'                            Use \code{.01} to calaculate original logratio as used in stm package.
+#'                            Use \code{1} to for UMass logratio as used by Mimno.
+#'                            Use \code{.01} to calculate logratio as used in stm package.
 #' @param average_over_topics By default \code{FALSE} to return coherence score for each indivual topic.
-#'                            When set to \code{TRUE} return shows the mean score over all topics.
+#'                            When set to \code{TRUE} the mean score over all topics is returned.
 #'
 #' @return A \code{data.table} showing the various coherence scores per topic (or average over all topics).
 #' @export
@@ -150,11 +150,9 @@ calc_coherence <-  function( top_term_matrix
     wiwj <- t(combn(idxs,2, FUN = function(x) sort(x, decreasing = FALSE)))
     } else if (set_type == "one_pre_topic_order") {
       #for asymmetric sets the original order of words (hence, indexes of tcm) has to be restored
-      # idxs <- unlist(topic_coherence[1,2])
-      # alternative_order =  restore_topic_order
       reorder <- order(match(idxs, alternative_order), decreasing = TRUE)
       idxs <- idxs[reorder]
-      ##in contrast to the other subsets, no additional reordering of indices
+      #in contrast to the other subsets, no additional reordering of indices at this point
       #to maintain original topic order
       wiwj <- t(combn(idxs,2))
     }
@@ -165,7 +163,7 @@ calc_coherence <-  function( top_term_matrix
 #DEFINITION OF COHERENCE MEASURES------------------------------------------------------------
   #TODO
   #more convenient interface for defintion of coherence functions might be established
-  #e.g. by defining them as reference class, this would also allow more flexible definition of additional measures by user
+  #e.g. by defining them as reference/S6 class, this would also allow more flexible definition of additional measures by user
   coh_funs <- list(
     #LOG-RATIO
     logratio_UMass = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant) {log(log_smooth_constant + tcm[wi,wj]) - log(log_smooth_constant + tcm[wj,wj])}
@@ -191,7 +189,7 @@ calc_coherence <-  function( top_term_matrix
     #DIFFERENCE
     #assuming we use ordered tcm it follows that p(wi)>p(wj)
     #to set bounds of the measures [-1,1] (1 is good)  wi/wj are switched in formula
-    #this is similar to the measure of textmineR package https://github.com/TommyJones/textmineR/issues/35
+    #this is similar (not exactly the same) to the measure of textmineR package https://github.com/TommyJones/textmineR/issues/35
     ,prob_dif = structure(function(wi, wj, ndocs_tcm, tcm, log_smooth_constant) {tcm[wj,wi]/tcm[wj,wj] - (tcm[wj,wj]/ndocs_tcm)}
                           ,set_type = "one_suc"
                           ,aggr_fun = "function(x) mean(x, na.rm = T)")

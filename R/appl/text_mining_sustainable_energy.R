@@ -1,4 +1,9 @@
 
+
+# import stopwords --------------------------------------------------------
+stopwords <- c(
+  #from packages
+  tm::stopwords("SMART")
 # settings ----------------------------------------------------------------
 
 dirproj <- "C:/Science/Publication/3_sustainable_energy/"
@@ -47,6 +52,41 @@ for (l in libraries) library(l,character.only=TRUE,quietly=TRUE,verbose=FALSE)
 # set number of cores to be used in parallel processing functions ---------
 #leave one core spare
 ncores <- detectCores()-1
+
+
+
+
+.ls.objects <- function (pos = 1, pattern, order.by,
+                         decreasing=FALSE, head=FALSE, n=5) {
+  napply <- function(names, fn) sapply(names, function(x)
+    fn(get(x, pos = pos)))
+  names <- ls(pos = pos, pattern = pattern)
+  obj.class <- napply(names, function(x) as.character(class(x))[1])
+  obj.mode <- napply(names, mode)
+  obj.type <- ifelse(is.na(obj.class), obj.mode, obj.class)
+  obj.prettysize <- napply(names, function(x) {
+    format(utils::object.size(x), units = "auto") })
+  obj.size <- napply(names, object.size)
+  obj.dim <- t(napply(names, function(x)
+    as.numeric(dim(x))[1:2]))
+  vec <- is.na(obj.dim)[, 1] & (obj.type != "function")
+  obj.dim[vec, 1] <- napply(names, length)[vec]
+  out <- data.frame(obj.type, obj.size, obj.prettysize, obj.dim)
+  names(out) <- c("Type", "Size", "PrettySize", "Rows", "Columns")
+  if (!missing(order.by))
+    out <- out[order(out[[order.by]], decreasing=decreasing), ]
+  if (head)
+    out <- head(out, n)
+  out
+}
+
+# shorthand
+lsos <- function(..., n=10) {
+  .ls.objects(..., order.by="Size", decreasing=TRUE, head=TRUE, n=n)
+}
+
+lsos()
+
 
 
 # functions ---------------------------------------------------------------
@@ -100,18 +140,6 @@ stm_adapt_exclusivity <- function(phi, M, frexw=.7){
 }
 
 
-#in textility
-tripl_to_sparse <- function(simple_triplet_matrix) {
-
-  Matrix::sparseMatrix(i=simple_triplet_matrix$i
-                       ,j=simple_triplet_matrix$j
-                       ,x=simple_triplet_matrix$v,
-                       dims=c(simple_triplet_matrix$nrow
-                              , simple_triplet_matrix$ncol)
-                       ,dimnames = dimnames(simple_triplet_matrix)
-  )
-}
-
 
 sparse_to_stm <- function(x) {
   out <- list(documents = NULL, vocab = colnames(x))
@@ -124,93 +152,6 @@ sparse_to_stm <- function(x) {
 }
 
 
-#in textility
-subset_rows_DT <- function(DT, idxs, delete_idxs = FALSE) {
-  if (delete_idxs == TRUE) {
-    idxs <- (1:nrow(DT))[!(1:nrow(DT) %in% idxs)]
-  }
-  cols = names(DT)
-  DT.subset = data.table(DT[[1]][idxs])
-  setnames(DT.subset, cols[1])
-  for (col in cols[2:length(cols)]){
-    DT.subset[, (col) := DT[[col]][idxs]]
-    DT[, (col) := NULL] #delete
-  }
-  return(DT.subset)
-}
-
-
-#in textility
-replace_acronyms_by_words <- function(docs, remove_replaced_acr = TRUE
-                                      , remove_all_bracketed_acr = TRUE
-                                      ) {
-
-  docs <- sapply(docs, function(d) {
-
-    acronyms <- unlist(stri_extract_all_regex(d, "(?<=\\()([^\\)]+)(?=\\))")) %>%
-      .[grep("^[A-Z][^\\s]*[A-Z][^\\s]*$", ., perl = T)] %>%
-      .[ !grepl("\\W", .)] %>%
-      gsub("s$", "",.) %>%
-      unique
-
-    if (length(acronyms) == 0) {
-      return(d)
-    } else {
-      acronym_word_pattern <- lapply(strsplit(acronyms, ""), function(a) {
-        words_before <- paste0("(^| )", paste0("("%s+%a[1:length(a)-1]%s+%"\\w+-?\\w+ )((of the ){0,1}|(from the ){0,1}|(and ){0,1}|(of ){0,1}|(by ){0,1}|(to ){0,1}|(on ){0,1}|(from ){0,1})", collapse = ""),
-                              "("%s+%a[length(a)]%s+%"\\w+-?\\w+ )", collapse = "")
-        paste0(words_before, "\\(", paste0(a, collapse = ""), "s?\\)")
-      })
-
-      acronym_word_pattern <- lapply(acronym_word_pattern, function(p) {
-        p <- unlist(stri_extract_all_regex(d, p, case_insensitive = TRUE))
-        res <- gsub("\\)", "", stri_split_fixed(p, " (", simplify = T))
-
-        if ( any(is.na(res)) ) {
-          return(NULL)
-        } else {
-          res <- as.data.frame(res, stringsAsFactors = FALSE)
-          colnames(res) <- c("words", "acronym")
-          res$acronym <- gsub("s$", "", res$acronym)
-          return(res)
-        }
-      })
-
-      acronym_word_pattern <- unique(rbindlist(acronym_word_pattern, fill = TRUE, use.names = TRUE))
-
-      if (nrow(acronym_word_pattern) == 0) {
-        return(d)
-      } else {
-        d <- stri_replace_all_regex(d
-                                    , paste0("(?<=\\s)(", acronym_word_pattern$acronym , "s?)(?=\\s|\\.|,)")
-                                    , acronym_word_pattern$word
-                                    , vectorize_all = FALSE)
-
-        d <- stri_replace_all_regex(d
-                                    , paste0("\\(", acronym_word_pattern$acronym , "s?\\)")
-                                    , rep("", length(acronym_word_pattern$acronym))
-                                    , vectorize_all = FALSE)
-        return(d)
-      }
-    }
-  }, USE.NAMES = FALSE)
-
-  if (remove_all_bracketed_acr == TRUE) {
-
-    docs <- stri_replace_all_regex(docs
-                           , "\\([A-Z][A-Za-z]*[A-Z]s?\\)"
-                           , " "
-                           , vectorize_all = FALSE)
-
-    return(docs)
-
-  } else {
-
-    return(docs)
-
-  }
-
-}
 
 
 #for testing
@@ -365,22 +306,6 @@ replace_acronyms_by_words <- function(docs, remove_replaced_acr = TRUE
 #
 #   return(result_data)
 # }
-
-#in textility
-uncontract_negations <- function(x) {
-
-  contracted_negations <- c("isn.t",     "aren.t"  ,  "wasn.t"  ,  "weren.t" ,  "hasn.t"   , "haven.t"
-                            ,"hadn.t"   , "doesn.t" ,  "don.t" ,    "didn.t"  ,  "won.t"  ,   "wouldn.t"
-                            ,"shan.t" ,   "shouldn.t" ,"can.t"  ,   "couldn.t" ,"mustn.t"  , "cannot")
-  uncontracted_negations <- c("is not"  ,   "are not"  ,  "was not"  ,  "were not"  , "has not" ,   "have not"
-                              ,"had not"   , "does not"  , "do not"  ,   "did not"  ,  "will not"   ,  "would not"
-                              ,"shall not"  , "should not", "can not"  ,   "could not" , "must not", "can not")
-  stri_replace_all_regex(x
-                         , paste0("\\b", contracted_negations , "\\b")
-                         , uncontracted_negations
-                         , vectorize_all = FALSE
-  )
-}
 
 
 
@@ -733,11 +658,6 @@ fit_LDA_Gibbs_vary_k_parallel <-       function( dtm_tripl
 #                               ,ncores = ncores
 #                               ,model_dir = dirmod)
 
-
-# import stopwords --------------------------------------------------------
-stopwords <- c(
-  #from packages
-  tm::stopwords("SMART")
   ,tm::stopwords("en")
   ,tokenizers::stopwords("en")
  # ,setdiff(lexicon::sw_buckley_salton, c("ill", "edu", "ignored", "immediate", "novel"))
@@ -2491,7 +2411,6 @@ any(Matrix::colSums(dtm) == 0)
 # [1] FALSE
 
 if (any(Matrix::rowSums(dtm) == 0)) {
-
   deleterows <- which(Matrix::rowSums(dtm) == 0)
   warning("Docs with the following ids removed from dtm since these docs were empty after cleaning/pruning: "
           , paste(rownames(dtm)[deleterows], collapse = "; "))
@@ -2499,6 +2418,41 @@ if (any(Matrix::rowSums(dtm) == 0)) {
   dtm <- dtm[-deleterows, ]
 }
 
+
+#create tcm matrices for topic coherence calculation
+#modify matrix so that diag contains term counts (or marginal probability of terms when dividing by ndocs)
+skip_grams_window <- 5L #x words before and after
+skip_grams_window_context <- "symmetric" #or "left" "right"
+tcm_skip5 <- create_tcm(iterator_docs_cc
+                  ,vectorizer
+                  ,skip_grams_window = skip_grams_window
+                  ,skip_grams_window_context = skip_grams_window_context
+                  ,weights = rep(1, skip_grams_window)
+                  )
+
+tcm_skip5_diag <- vocabulary[vocabulary$term %in% colnames(tcm_skip5), ]
+tcm_skip5_diag <- tcm_skip5_diag[match(tcm_skip5_diag$term, colnames(tcm_skip5)), ]
+Matrix::diag(tcm_skip5) <- tcm_skip5_diag$term_count
+
+skip_grams_window <- 15L #x words before and after
+tcm_skip15 <- create_tcm(iterator_docs_cc
+                            ,vectorizer
+                            ,skip_grams_window = skip_grams_window
+                            ,skip_grams_window_context = skip_grams_window_context
+                            ,weights = rep(1, skip_grams_window)
+)
+tcm_skip15_diag <- vocabulary[vocabulary$term %in% colnames(tcm_skip15), ]
+tcm_skip15_diag <- tcm_skip5_diag[match(tcm_skip15_diag$term, colnames(tcm_skip15)), ]
+Matrix::diag(tcm_skip15) <- tcm_skip15_diag$term_count
+
+tcm_skip5[1:5, 1:5]
+tcm_skip15[1:5, 1:5]
+
+# save(tcm_skip5, file = paste0(dirres, "tcm_skip5.rda"))
+# load(file = paste0(dirres, "tcm_skip5.rda"))
+
+# save(tcm_skip15, file = paste0(dirres, "tcm_skip15.rda"))
+# load(file = paste0(dirres, "tcm_skip15.rda"))
 
 #dtm_l1_norm <- normalize(dtm, "l1")  #seldomly needed
 
@@ -2896,14 +2850,65 @@ modelfiles <- paste0(gsub("models/", "models2/", dirmod), list.files(gsub("model
 modelfiles <- modelfiles[order(as.numeric(unlist(stri_extract_all_regex(modelfiles, "(?<=/k)\\d+(?=_)")))
                                , decreasing = F)]
 
-#load(modelfiles[3])
+
+
+#load(modelfiles[4])
+
+
 # models <- lapply(modelfiles, function(x) {
 #                load(x)
 #                fitted
 # })
 # names(models) <- gsub(paste(dirmod, "_hours.*$", sep = "|"), "", modelfiles, perl = T)
 
+
 check_model_quality <-                function(  modelfiles
+                                                 , dtm_tripl
+                                                 , n_topterms_per_topic = 10
+) {
+
+  res <- lapply(1:length(modelfiles), function(m) {
+    print(paste0("Model: \n", modelfiles[m], "\n terms: \n", n_topterms_per_topic))
+
+    load(modelfiles[m])
+    beta <- fitted@beta
+    terms <- fitted@terms
+    colnames(beta) <- terms
+    if (any(!(colnames(dtm_tripl) %in% terms))) {
+      stop("Terms of term/topic distribution (model ouput) not identical to terms in document term matrix (model input).")
+    }
+    #check if desired number of top terms is available in data
+    if (any(n_topterms_per_topic > ncol(beta))) {
+      n_topterms_per_topic_excluded <- n_topterms_per_topic[(n_topterms_per_topic > ncol(beta))]
+      n_topterms_per_topic <- c(n_topterms_per_topic[ !(n_topterms_per_topic >= ncol(beta)) ]
+                                , ncol(beta))
+      warning(paste0("For k=", k, " terms per topic were less than desired set values. Maximum possible number, i.e., colnames(dtm) was used as upper limit."))
+    }
+    #get quality measures
+    model_quality <- data.table(
+      modeltype = class(fitted)
+      ,ntopics = fitted@k
+      ,ntopterms = n_topterms_per_topic
+      ,loglik =  fitted@loglikelihood
+    )
+
+    top_term_mat <- make_top_term_matrix(beta = beta, n = n_topterms_per_topic, terms = terms)
+    tcm_top_terms <- get_cooccurrence(dtm_tripl[,(unique(as.vector(top_term_mat)))])
+
+    model_quality <- cbind(model_quality, calc_coherence( tcm = tcm_top_terms
+                                                          , top_term_matrix = top_term_mat
+                                                          , average_over_topics = TRUE
+                                                          #, log_smooth_constant = .01 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
+                                                          , ndocs_tcm = nrow(dtm_tripl))
+                           )
+
+  })
+  rbindlist(res)
+}
+
+
+
+check_model_quality_parallel <-                function(  modelfiles
                                                 , dtm_tripl
                                                 , ncores
                                                 , n_topterms_per_topic = 20
@@ -2915,14 +2920,16 @@ check_model_quality <-                function(  modelfiles
     library(Matrix)
     library(data.table)
     library(textility)
+    library(slam)
   })
   parallel::clusterExport(cluster,list( ls(environment()) ),  envir = environment())
 
   result_data <- foreach(j = 1:length(modelfiles)
-                        # ,.export= c("function_name")
+                         ,.export= c("calc_coherence")
                          ,.combine = function(...) rbindlist(list(...))
                          ,.multicombine= TRUE
                          ) %dopar% {
+    print(paste0(gsub(".*/models2/", "", modelfiles[j]), " | Nterms: ",n_topterms_per_topic))
     load(modelfiles[j])
     beta <- fitted@beta
     terms <- fitted@terms
@@ -2969,24 +2976,101 @@ model_quality <- cbind(model_quality, calc_coherence( tcm = tcm_top_terms
 }
 
 
-model_quality <- do.call(rbindlist, lapply(c(10
-                                             #,25
-                                             #,50
-                                             #,75
-                                             ), function(n) {
+check_model_quality_parallel2 <-                function(  modelfiles
+                                                          , ncores
+                                                          , tcm
+                                                          , ndocs_tcm
+                                                          , n_topterms_per_topic = 10
+) {
+  cluster <- makeCluster(ncores)
+  registerDoParallel(cluster)
+  clusterEvalQ(cluster, {
+    library(topicmodels)
+    library(Matrix)
+    library(data.table)
+    library(textility)
+    library(slam)
+  })
+  parallel::clusterExport(cluster,list( ls(environment()) ),  envir = environment())
 
-  check_model_quality( modelfiles = modelfiles
+  result_data <- foreach(j = 1:length(modelfiles)
+                         ,.export= c("calc_coherence")
+                         ,.combine = function(...) rbindlist(list(...))
+                         ,.multicombine= TRUE
+  ) %dopar% {
+    print(paste0(gsub(".*/models2/", "", modelfiles[j]), " | Nterms: ",n_topterms_per_topic))
+    load(modelfiles[j])
+    beta <- fitted@beta
+    terms <- fitted@terms
+    colnames(beta) <- terms
+    if (any(!(colnames(tcm) %in% terms))) {
+      stop("Terms of term/topic distribution (model ouput) not identical to terms in document term matrix (model input).")
+    }
+    #check if desired number of top terms is available in data
+    if (any(n_topterms_per_topic > ncol(beta))) {
+      n_topterms_per_topic_excluded <- n_topterms_per_topic[(n_topterms_per_topic > ncol(beta))]
+      n_topterms_per_topic <- c(n_topterms_per_topic[ !(n_topterms_per_topic >= ncol(beta)) ]
+                                , ncol(beta))
+      warning(paste0("For k=", k, " terms per topic were less than desired set values. Maximum possible number, i.e., colnames(dtm) was used as upper limit."))
+    }
+
+
+
+    #get quality measures
+    model_quality <- data.table(
+      modeltype = class(fitted)
+      ,ntopics = fitted@k
+      ,ntopterms = n_topterms_per_topic
+      ,loglik =  fitted@loglikelihood
+    )
+
+
+    top_term_mat <- make_top_term_matrix(beta = beta, n = n_topterms_per_topic, terms = terms)
+    tt_unq <- unique(as.vector(top_term_mat))
+    tcm_top_terms <- tcm[tt_unq,tt_unq]
+
+    model_quality <- cbind(model_quality, calc_coherence( tcm = tcm_top_terms
+                                                          , top_term_matrix = top_term_mat
+                                                          , average_over_topics = TRUE
+                                                          #, log_smooth_constant = .01 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
+                                                          , ndocs_tcm = ndocs_tcm)
+    )
+
+
+
+
+    return(model_quality)
+  }
+  stopCluster(cluster)
+  return(result_data)
+}
+
+
+model_quality <- rbindlist(lapply(c(50,75), function(n) {
+ check_model_quality( modelfiles = modelfiles[12:13]
+                                 , dtm_tripl = dtm_tripl
+                                 , n_topterms_per_topic = n
+  )
+})
+)
+
+
+model_quality <- rbindlist(lapply(c(10,25,50,75), function(n) {
+  check_model_quality_parallel( modelfiles = modelfiles
                        , dtm_tripl = dtm_tripl
-                       , ncores = parallel::detectCores()
+                       ,ncores = 2
                        , n_topterms_per_topic = n
-                        )
+  )
+})
+)
 
-}))
+model_quality <-  check_model_quality_parallel2( modelfiles = modelfiles
+                                , tcm = tcm_skip5
+                                ,ncores = 3
+                                , ndocs_tcm = nrow(dtm_tripl)
+                                , n_topterms_per_topic = 10
+)
 
-model_quality  <- check_model_quality( modelfiles = modelfiles
-                                       , dtm_tripl = dtm_tripl
-                                       , ncores = parallel::detectCores()
-                                       , n_topterms_per_topic = c(10,25,50,75))
 
 
 #exclusivity does not seem to be a good measure
@@ -2996,15 +3080,56 @@ model_quality  <- check_model_quality( modelfiles = modelfiles
 # }, USE.NAMES = T)
 # sapply(exclusivities, mean)
 
-
 normalize_range <- function(x){(x-min(x))/(max(x)-min(x))}
 
+plot_data <- copy(model_quality[,2:ncol(model_quality)])
+cols <- names(plot_data)[2:ncol(plot_data)]
+cols <- setdiff(cols, "ntopterms")
+plot_data[ , (cols) := lapply(.SD, normalize_range), .SDcols = cols, by = c("ntopterms")]
+plot_data <- melt(plot_data
+                  #,id = "ntopics"
+                  ,id.vars = c("ntopics", "ntopterms"))
+
+ggplot(plot_data, aes(ntopics, value,  colour = ntopterms)) +
+  geom_line(aes(group = ntopterms)) +
+    facet_grid(. ~ variable)
+
+#theme_bw()
 
 
-model_quality_normalized <- copy(model_quality)
-cols <- names(model_quality_normalized)[3:ncol(model_quality_normalized)]
-model_quality_normalized[ , (cols) := lapply(.SD, normalize_range), .SDcols = cols]
+plot_data <- model_quality[,c(2,5,6,7,8,9,10)]
+cols <- names(plot_data)
+plot_data[ , (cols) := lapply(.SD, normalize_range), .SDcols = cols, by = c("ntopterms")]
+plot_data <- melt(plot_data
+                  #,id = "ntopics"
+                  ,id.vars = c("ntopics"))
 
+ggplot(plot_data, aes(ntopics, value,  colour = variable)) +
+  geom_line() +
+  facet_grid(. ~ variable)
+
+#theme_bw()
+
+
+labs(x = "Number of topics", y = "Logarithmic likelihood")
+
+
+
+rnorm(plot_data[plot_data$variable == "loglik", "value" ])
+
+plot(plot_data[plot_data$variable == "loglik", "value" ])
+
+
+
+
+
+
+
+
+
+
+
+model_quality_normalized <- copy(model_quality[,2:ncol(model_quality)])
 plot_data <- data.frame(model_quality_normalized[,2:ncol(model_quality_normalized)])
 plot_data <- melt(plot_data, id = "ntopics")
 plot_data$variable <- as.factor(plot_data$variable)
@@ -3016,6 +3141,7 @@ plot_data$variable <- as.factor(plot_data$variable)
 
 
      labs(x = "Number of topics", y = "Logarithmic likelihood")
+
 
 
 
@@ -3077,9 +3203,6 @@ terms(m1, 410)[, c("Topic 93") ]
 terms(m1, 1000)[c(1:10, 600:610,  970:1000), c("Topic 5", "Topic 6") ]
 
 terms(m2, 15)
-
-
-
 
 # check results of model validation ---------------------------------------
 
