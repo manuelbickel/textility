@@ -97,7 +97,7 @@ calc_coherence <-  function( top_term_matrix
   #ordering tcm is relevant for asymmetric measures that require a certain order
   #some asymmetric measures require the original order in the topic (e.g. UMass),
   #which is therefore also stored for re-mapping indices of tcm to this order
-  if ("Matrix" %in% unlist(attributes(class(tcm)))) {
+  if ("Matrix" %in% unlist(attributes(class(tcm)))) { #TODO? require sparseMatrix as input
     prob_order <- order(Matrix::diag(tcm),  decreasing = TRUE)
   } else {
     prob_order <- order(diag(tcm),  decreasing = TRUE)
