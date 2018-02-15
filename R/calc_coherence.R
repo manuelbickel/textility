@@ -25,7 +25,7 @@ calc_coherence <-  function( top_term_matrix
                             ,tcm
                             ,ndocs_tcm = NULL
                             ,log_smooth_constant = .1e-12
-                            ,average_over_topics = FALSE
+                          #  ,average_over_topics = FALSE
                             ) {
 
 #GENERAL LOGIC--------------------------------------------------------
@@ -81,17 +81,20 @@ calc_coherence <-  function( top_term_matrix
 #PREPARE TCM------------------------------------------------------------------------
   #check if input tcm really contains the same elements in rows and columns
   if ( !all.equal(rownames(tcm)[order(rownames(tcm))], colnames(tcm)[order(colnames(tcm))]) ) {
-    stop("There is a difference between the terms in rows and columns of the tcm.
+    warning("There is a difference between the terms in rows and columns of the tcm.
          Please check tcm, the sets of the terms have to be the same (they do not necessarily have to be in the same order).")
   }
   #check if tcm includes all top terms
-  if ( !(length(intersect(top_unq, colnames(tcm))) == length(top_unq)) ) {
-    stop("Not all terms of top_term_matrix are included in tcm.
+  if ( intersect(top_unq, colnames(tcm)) == top_unq) {
+    warning("Not all terms of top_term_matrix are included in tcm.
           For individial topics coherence scores would be based on incomplete word sets.
           Please adapt top term matrix or tcm to ensure full intersection of terms.")
   }
   #reduce tcm to top word space (makes tcm symmetric)
-  tcm <- tcm[top_unq, top_unq]
+  #TODO
+  top_unq_subset <- colnames(tcm) %in% top_unq
+  tcm <- tcm[top_unq_subset, top_unq_subset]
+
   #order tcm by term probability (entries in diagonal)
   #from left to right the probability of terms follows the rule p(tcm[i,i]) > p(tcm[i+1,i+1])
   #ordering tcm is relevant for asymmetric measures that require a certain order
@@ -129,12 +132,22 @@ calc_coherence <-  function( top_term_matrix
   #   ), units = "Mb")
   #hence, workaround using base::matrix for faster subsetting instead of sparseMatrix seems acceptable
   tcm <- as.matrix(tcm)
+  #TODO #depending on input, matrix might have to be turned to upper triangle matrix
+  if (any((sign(tcm[upper.tri(tcm, diag = F)]) + sign(t(tcm)[upper.tri(tcm, diag = F)])) > 1)) {
+    warning("Input TCM is not symmetric or not coercible to upper triangle matrix.
+            Entries of upper and lower triangle overlap (both have entries >1) where one of the entries should be zero.")
+  }
+  #make upper triangle matrix
+  tcm[upper.tri(tcm, diag = F)] <- tcm[upper.tri(tcm, diag = F)] + t(tcm)[upper.tri(tcm, diag = F)]
+  #setting lower triangle to zero is not necessary since index combinations are only taken from upper triangle
+  #however, to make potential mistakes in index subsetting visible it is still set to zero
+  tcm[lower.tri(tcm, diag = F)] <-  tcm[upper.tri(tcm, diag = F)]
+
 
 #GET REFERENCE INDICES OF TOP TERMS IN TCM FOR EACH TOPIC---------------------------
   #credits for this approach of getting indices go to authors of stm package
   topic_coherence[,tcm_idxs := split(match(top, colnames(tcm))
                                      , rep(1:ntopics, each=nterms))]
-
 #FUNCTION TO CREATE SETS OF wi/wj------------------------------------------------------------
   #order of indices in S_one_pre and S_one_suc matters for asymmetric measures
   #S_one_pre follows the logic SUM(from i=2 to N)SUM(from j=1 to i-1)
@@ -197,7 +210,7 @@ calc_coherence <-  function( top_term_matrix
 
 #WRAPPER FUNCTION TO CALCULATE COHERENCE-------------------------------------------------------
   #TODO coh_funs and other args need to be passed to the function as argument,
-  #later steps would be less verbose when fetching several or the arguments,e.g., tcm, from the function environment -> scoping
+  #later steps would be less verbose when fetching several of the arguments,e.g., tcm, from the function environment -> scoping
   calc_coh <- function( idxs
                        , tcm
                        , coh_funs = coh_funs
@@ -209,6 +222,12 @@ calc_coherence <-  function( top_term_matrix
     #select coherence function from the ones availble
     coh_fun <- coh_funs[[coh_measure]]
     #define the wi wj set
+    #TODO
+    #remove NA values
+    idxs <- idxs[!is.na(idxs)]
+    if (length(idxs) < 2) { #minimum of two terms required for coherence calculation
+      return(NA)
+    }
     coh <- as.data.table(create_wiwj_set(idxs, set_type = attr(coh_fun, "set_type"), alternative_order = alternative_order))
     #calculate score for each pair of wi wj
     coh[, coh_res:= mapply(function(x,y) coh_fun(x,y, tcm = tcm, ndocs_tcm = ndocs_tcm, log_smooth_constant = log_smooth_constant),wi, wj)]
@@ -230,10 +249,10 @@ calc_coherence <-  function( top_term_matrix
   }
 
   topic_coherence[, tcm_idxs := NULL]
-
-  if (average_over_topics == TRUE) {
-    topic_coherence <- topic_coherence[, lapply(.SD, function(x) round(mean(x, na.rm = T), d = 4)), .SDcols = setdiff(names(topic_coherence), "Topic")]
-  }
+#
+#   if (average_over_topics == TRUE) {
+#     topic_coherence <- topic_coherence[, lapply(.SD, function(x) round(mean(x, na.rm = T), d = 4)), .SDcols = setdiff(names(topic_coherence), "Topic")]
+#   }
   return(topic_coherence[])
 }
 

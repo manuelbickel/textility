@@ -3,7 +3,7 @@
 #' Convert sparse Matrix to format required by stm for modelling
 #'
 #' stm has a readCorpus function that does the same, however, it may choke on large matrices. Hence, this function is simply a more memory efficent version
-#' for sparseMatrix input using \code{text2vec::as.lda_c} for conversion with slight adaptions to make output fit to stm requirements.
+#' for sparseMatrix input using \code{text2vec::as.lda_c} for conversion with slight adaptions to make output fit to stm requirements in terms of document indices.
 #'
 #' @param x A \code{sparseMatrix}.
 #' @param keep_rownames By default TRUE, documents are named according to the rownames of \code{x}. When set to FALSE, document names are \code{NULL}.
@@ -29,16 +29,16 @@
 
 
 sparse_to_stm <- function(x, keep_rownames = TRUE) {
-  out <- list(documents = NULL, vocab = colnames(x))
+  dtm_stm <- list(documents = NULL, vocab = colnames(x))
   if (keep_rownames == TRUE) {
      doc_names <- rownames(x)
   } else {
     doc_names <- NULL
   }
-  out$documents <- lapply(text2vec::as.lda_c(x), function(y){
+  dtm_stm$documents <- lapply(text2vec::as.lda_c(x), function(y){
     y[1,] <- y[1,]+1L
     return(y)
   })
-  names(out$documents) <- doc_names
-  out
+  names(dtm_stm$documents) <- doc_names
+  dtm_stm
 }

@@ -90,10 +90,6 @@ stri_process <- function(x
   }
 
   if (!is.null(replace_dashes_hyphens_by)) {
-    #keeping compounds is now decided in collocation model
-    #see comment on ouput for vocabulary[..fossil..]
-    #formerly dashes were replaced by "", now by blank
-    #ensure that compounds are kept, e.g. long-term should show up as longterm
     #https://stackoverflow.com/questions/1011708/regex-to-replace-hyphen-in-the-middle-of-a-word
     #http://www.unicode.org/versions/Unicode10.0.0/ch06.pdf
     dashes <- stringi::stri_trans_general(paste0("U+", c(2010:2015, 2043, "002D", "FE63", "FF0D")), "Hex-Any/Name")
