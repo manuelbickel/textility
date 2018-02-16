@@ -17,7 +17,7 @@ A list y of 2 items, y$documents are documents represented similar to lda_c form
 }
 \description{
 stm has a readCorpus function that does the same, however, it may choke on large matrices. Hence, this function is simply a more memory efficent version
-for sparseMatrix input using \code{text2vec::as.lda_c} for conversion with slight adaptions to make output fit to stm requirements.
+for sparseMatrix input using \code{text2vec::as.lda_c} for conversion with slight adaptions to make output fit to stm requirements in terms of document indices.
 }
 \examples{
 

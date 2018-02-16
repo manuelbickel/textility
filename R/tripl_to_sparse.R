@@ -1,7 +1,7 @@
 #' Simple triple matrix to sparse matrix
 #'
 #' @param simple_triplet_matrix A simple_triplet_matrix as used in package slam.
-#' @param giveCsparse By default \code {TRUE}. Set to \code{FALSE} if a \code{dgTMatrix} shall be returned instead of a \code{dgCMatrix}.
+#' @param giveCsparse By default \code{TRUE}. Set to \code{FALSE} if a \code{dgTMatrix} shall be returned instead of a \code{dgCMatrix}.
 #'
 #' @return \code{sparseMatrix} from package Matrix.
 #' @export
@@ -19,5 +19,5 @@ tripl_to_sparse <- function(simple_triplet_matrix, giveCsparse = TRUE) {
                        ,dims=c(simple_triplet_matrix$nrow
                               ,simple_triplet_matrix$ncol)
                        ,dimnames = dimnames(simple_triplet_matrix)
-  )
+                        )
 }

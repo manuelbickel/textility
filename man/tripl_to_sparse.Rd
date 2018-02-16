@@ -9,7 +9,7 @@ tripl_to_sparse(simple_triplet_matrix, giveCsparse = TRUE)
 \arguments{
 \item{simple_triplet_matrix}{A simple_triplet_matrix as used in package slam.}
 
-\item{giveCsparse}{By default \code {TRUE}. Set to \code{FALSE} if a \code{dgTMatrix} shall be returned instead of a \code{dgCMatrix}.}
+\item{giveCsparse}{By default \code{TRUE}. Set to \code{FALSE} if a \code{dgTMatrix} shall be returned instead of a \code{dgCMatrix}.}
 }
 \value{
 \code{sparseMatrix} from package Matrix.

@@ -5,23 +5,23 @@
 \title{Calculation of various coherence measures for topic models}
 \usage{
 calc_coherence(top_term_matrix, tcm, ndocs_tcm = NULL,
-  log_smooth_constant = 1e-13, average_over_topics = FALSE)
+  log_smooth_constant = 1e-13)
 }
 \arguments{
 \item{top_term_matrix}{A character matrix with the top words (entries = words) ranked starting with row 1 per topic (columnnames = topics). e.g.,
-For example, the output of \code{topicmodels::terms(fitted_model, ...)}  text2vec::fitted_model$get_top_words(...).}
+For example, the output of \code{topicmodels::terms} or text2vec::get_top_words(...).}
 
 \item{tcm}{A term co-occurrence matrix that serves as reference to calculate coherence scores for the terms in \code{top_term_matrix}.}
 
-\item{ndocs_tcm}{The number of documents that served to create the \code{tcm}.}
+\item{ndocs_tcm}{The number of documents that served to create the \code{tcm} to calculate probabilities from counts in the\code{tcm} used as input to some coherence measures.}
 
 \item{log_smooth_constant}{Smoothing constant to avoid logarithm of zero in calcualtions, for example, \code{log(log_smooth_constant + 0)}.
 By default \code{.1e-12} as used by Röder et al.(palmetto).
-Use \code{1} to calaculate original UMass logratio as used by Mimno.
-Use \code{.01} to calaculate original logratio as used in stm package.}
+Use \code{1} to for UMass logratio as used by Mimno.
+Use \code{.01} to calculate logratio as used in stm package.}
 
 \item{average_over_topics}{By default \code{FALSE} to return coherence score for each indivual topic.
-When set to \code{TRUE} return shows the mean score over all topics.}
+When set to \code{TRUE} the mean score over all topics is returned.}
 }
 \value{
 A \code{data.table} showing the various coherence scores per topic (or average over all topics).
