@@ -1,3 +1,24 @@
+#' dtm = cbind(A = c(1,2,3,0, 0), B = c(4,0,5,0, 0), C = c(0,6,7,8, 0), D = c(0,0,0,1, 1))
+#' topic_word_distribution = rbind(T1 = c(0.5,0.3,0.19, 0.01), T2 = c(0.19,0.3,0.5, 0.01),  T3 = c(0.3,0.5,0.19, 0.01))
+#' colnames(topic_word_distribution) = c("A", "B", "C", "D")
+#' n_topterms = 2
+#' top_term_mat = apply(topic_word_distribution, 1 , function(x) order(x, decreasing = T))[1:n_topterms, ]
+#' top_term_mat = apply(top_term_mat, 2 , function(x) colnames(topic_word_distribution)[x])
+#' dtm_top_terms = dtm[,(unique(as.vector(top_term_mat)))]
+#' dtm_top_terms[dtm_top_terms > 1] = 1
+#' tcm_top_terms = crossprod(dtm_top_terms)
+#'
+#' coherence( tcm = tcm_top_terms
+#'                , top_term_matrix = top_term_mat
+#'                , n_tcm_windows = nrow(dtm))
+#' # Topic logratio_UMass logratio prob_logratio    pmi    npmi prob_dif
+#' # 1:    T1        -0.4055  -0.4055       -0.4055  0.737  0.5575      0.6
+#' # 2:    T2        -0.6931  -1.0986       -1.0986 -0.263 -0.1133      0.1
+#' # 3:    T3        -0.4055  -0.4055       -0.4055  0.737  0.5575      0.6
+
+
+
+
 #Demonstation of basic functionality with some (unrealistic) numbers -------------------------------------------------
 dtm <- cbind(A = c(1,2,3,0, 0), B = c(4,0,5,0, 0), C = c(0,6,7,8, 0), D = c(0,0,0,1, 1))
 ndocs <- nrow(dtm)
@@ -194,4 +215,134 @@ coherence
 # 3:    T3       -64.4604  -82.1350       -1.4825 1.2059 0.2805   0.3168  -64.4604       0
 # 4:    T4      -153.6410 -173.3197       -1.8565 2.1617 0.3801   0.2525 -153.6410       0
 # 5:    T5      -105.8565 -114.5438       -1.7396 1.0560 0.2242   0.2340 -105.8565
+
+
+
+#--------------------------------third version
+
+#Demonstation of basic functionality with some (unrealistic) numbers -------------------------------------------------
+dtm <- cbind(A = c(1,2,3,0, 0), B = c(4,0,5,0, 0), C = c(0,6,7,8, 0), D = c(0,0,0,1, 1))
+ndocs <- nrow(dtm)
+topic_word_distribution <- rbind(T1 = c(0.5,0.3,0.19, 0.01), T2 = c(0.19,0.3,0.5, 0.01),  T3 = c(0.3,0.5,0.19, 0.01))
+top_term_mat <- make_top_term_matrix(topic_word_distribution, 2, terms = c("A", "B", "C", "D"))
+# top_term_mat <- structure(c("A", "B", "C", "B", "B", "A")
+#                           , .Dim = 2:3, .Dimnames = list(NULL, c("T1", "T2", "T3")))
+dtm_top_terms <- dtm[,(unique(as.vector(top_term_mat)))]
+# dtm_top_terms <- structure(c(1, 2, 3, 0, 0, 4, 0, 5, 0, 0, 0, 6, 7, 8, 0)
+#                             , .Dim = c(5L, 3L), .Dimnames = list(NULL, c("A", "B", "C")))
+tcm_top_terms <- get_cooccurrence(dtm_top_terms)
+# tcm_top_terms <- structure(c(3, 2, 2, 2, 2, 1, 2, 1, 3)
+# , .Dim = c(3L, 3L), .Dimnames = list(c("A", "B", "C"), c("A", "B", "C")))
+tcm <- tcm_top_terms
+top_term_matrix <- top_term_mat
+
+calc_coherence( tcm = tcm
+                , top_term_matrix = top_term_matrix
+                , average_over_topics = FALSE
+                , log_smooth_constant = .01 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
+                , ndocs = nrow(dtm))
+# Topic logratio_UMass logratio prob_logratio     pmi    npmi prob_dif
+# 1:    T1        -0.4038  -0.4038       -0.3808  0.7726  0.6006      0.6
+# 2:    T2        -0.6882  -1.0920       -1.0498 -0.1926 -0.0856      0.1
+# 3:    T3        -0.4038  -0.4038       -0.3808  0.7726  0.6006      0.6
+
+
+#Test 1: check if different input types work
+#a:  check if different input formats from from topicmodels result in same ouput:
+#    raw beta, i.e., numeric word distribution over topics, VS top words beta, i.e., actual words as characters per topic
+#b:  input from text2vec: top words beta, i.e., actual words as characters per topic
+#c:  difference of output for input from text2vec vs topicmodels
+
+#Test 2: for validaation, check if coherence results for adapted UMAss measure are in line with results from stm
+library(data.table)
+library(topicmodels)
+library(text2vec)
+library(Matrix)
+library(slam)
+library(textility)
+
+seedpar <- 42 #as input to topicmodels LDA
+set.seed(seedpar) #seed for text2vec LDA
+n_topics <- 5
+n_topwords <- 10
+alpha_prior <- 0.1
+
+#1a- test if different input formats really results in same ouput---------------------------------------
+data("AssociatedPress", package = "topicmodels")
+dtm <- AssociatedPress[1:100,]
+fitted <- LDA(dtm, method = "Gibbs" , control = list(alpha = alpha_prior, seed = seedpar), k = n_topics)
+
+tt_mat <- make_top_term_matrix(fitted@beta, terms = fitted@terms, n = n_topwords)
+dtm_tt <- dtm[,(unique(as.vector(tt_mat)))]
+tcm_tt <- get_cooccurrence(dtm_tt)
+
+coherence <- coherence( tcm = tcm_tt
+                             , top_term_matrix = tt_mat
+                             #, average_over_topics = FALSE
+                             #, log_smooth_constant =  .01#.1e-12 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
+                             , n_tcm_windows = nrow(dtm))
+
+
+#1b - test if input from text2vec works ---------------------------------------------------------------
+#following functions needed to use same data as above but as sparseMatrix as required by text2vec
+tripl_to_sparse <- function(simple_triplet_matrix) {
+  Matrix::sparseMatrix(i=simple_triplet_matrix$i
+                       ,j=simple_triplet_matrix$j
+                       ,x=simple_triplet_matrix$v,
+                       dims=c(simple_triplet_matrix$nrow
+                              , simple_triplet_matrix$ncol)
+                       ,dimnames = dimnames(simple_triplet_matrix)
+  )
+}
+
+
+
+#2 - validation, check results of the logratio_UMass (with smoothing of .01) against results of stm package-------------------------------
+#the following is a copy of the internal core function from stm package to calculate coherence within the function semanticCoherence
+#(similar to UMass but with smoothing factor epsilon = .1)
+semCoh1_stmoriginal <- function(mat, M, beta){
+  #Get the Top N Words
+  top.words <- apply(beta, 1, order, decreasing=TRUE)[1:M,]
+  wordlist <- unique(as.vector(top.words))
+  mat <- mat[,wordlist]
+  mat$v <- ifelse(mat$v>1, 1,mat$v) #binarize
+
+  #do the cross product to get co-occurences
+  cross <- slam::tcrossprod_simple_triplet_matrix(t(mat))
+
+  #create a list object with the renumbered words (so now it corresponds to the rows in the table)
+  temp <- match(as.vector(top.words),wordlist)
+  labels <- split(temp, rep(1:nrow(beta), each=M))
+
+  #Note this could be done with recursion in an elegant way, but let's just be simpler about it.
+  sem <- function(ml,cross) {
+    m <- ml[1]; l <- ml[2]
+    log(.01 + cross[m,l]) - log(cross[l,l] + .01)
+  }
+  result <- vector(length=nrow(beta))
+  for(k in 1:nrow(beta)) {
+    grid <- expand.grid(labels[[k]],labels[[k]])
+    colnames(grid) <- c("m", "l") #corresponds to original paper
+    grid <- grid[grid$m > grid$l,]
+    calc <- apply(grid,1,sem,cross)
+    result[k] <- sum(calc)
+  }
+  return(result)
+}
+
+#directly compare results
+coherence <- coherence( tcm = tcm_tt
+                             , top_term_matrix = tt_mat
+
+                             , n_tcm_windows = nrow(dtm))
+coherence[,  stm_semCo:=  round(semCoh1_stmoriginal(mat = dtm, M = n_topwords, beta = fitted@beta), d = 4)]
+coherence[,compare:= (sum_logratio_stm_pckg - stm_semCo)]
+coherence
+#    Topic logratio_UMass  logratio prob_logratio    pmi   npmi prob_dif stm_semCo compare
+# 1:    T1       -66.5718  -78.8201       -1.4696 0.6826 0.1789   0.2574  -66.5718       0
+# 2:    T2       -65.5420  -71.1473       -1.3861 1.0470 0.2741   0.3849  -65.5420       0
+# 3:    T3       -64.4604  -82.1350       -1.4825 1.2059 0.2805   0.3168  -64.4604       0
+# 4:    T4      -153.6410 -173.3197       -1.8565 2.1617 0.3801   0.2525 -153.6410       0
+# 5:    T5      -105.8565 -114.5438       -1.7396 1.0560 0.2242   0.2340 -105.8565
+
 
