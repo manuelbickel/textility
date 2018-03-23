@@ -23,16 +23,16 @@
 dtm <- cbind(A = c(1,2,3,0, 0), B = c(4,0,5,0, 0), C = c(0,6,7,8, 0), D = c(0,0,0,1, 1))
 ndocs <- nrow(dtm)
 topic_word_distribution <- rbind(T1 = c(0.5,0.3,0.19, 0.01), T2 = c(0.19,0.3,0.5, 0.01),  T3 = c(0.3,0.5,0.19, 0.01))
-top_term_mat <- make_top_term_matrix(topic_word_distribution, 2, terms = c("A", "B", "C", "D"))
+top_term_mat <- top_feature_matrix(topic_word_distribution, 2, terms = c("A", "B", "C", "D"))
 # top_term_mat <- structure(c("A", "B", "C", "B", "B", "A")
 #                           , .Dim = 2:3, .Dimnames = list(NULL, c("T1", "T2", "T3")))
-dtm_top_terms <- dtm[,(unique(as.vector(top_term_mat)))]
+dtm_top_terms <- dtm[,na.omit(unique(as.vector(top_term_mat)))]
 # dtm_top_terms <- structure(c(1, 2, 3, 0, 0, 4, 0, 5, 0, 0, 0, 6, 7, 8, 0)
 #                             , .Dim = c(5L, 3L), .Dimnames = list(NULL, c("A", "B", "C")))
 tcm_top_terms <- get_cooccurrence(dtm_top_terms)
 # tcm_top_terms <- structure(c(3, 2, 2, 2, 2, 1, 2, 1, 3)
                              # , .Dim = c(3L, 3L), .Dimnames = list(c("A", "B", "C"), c("A", "B", "C")))
-tcm <- tcm_top_terms
+twcm <- tcm_top_terms
 top_term_matrix <- top_term_mat
 
 calc_coherence( tcm = tcm
