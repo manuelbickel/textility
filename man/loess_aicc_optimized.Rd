@@ -2,30 +2,68 @@
 % Please edit documentation in R/loess_aicc_optimized.R
 \name{loess_aicc_optimized}
 \alias{loess_aicc_optimized}
-\title{Fitting of AICC optimized loess per topic over specified time range}
+\title{Fitting of AICC optimized loess (groupwise)}
 \usage{
-loess_aicc_optimized(DT, topic_selection = NULL, year_selection = NULL,
-  fit_columns = NULL, span_interval = NULL)
+loess_aicc_optimized(x, independent_var = NULL,
+  independent_var_range = NULL, dependent_var = NULL, groups = NULL,
+  group_subset = NULL, span_interval = NULL, degree = 2,
+  family = "gaussian", normalize = TRUE)
 }
 \arguments{
-\item{DT}{A \code{data.table}. Current implementation requires data.table to have two columns named year and topic.}
+\item{x}{A \code{data.table} with data in long format (use \code{data.table::melt} if your data is in wide format).}
 
-\item{topic_selection}{By default \code{loess} is fitted for all topics. A selection of topic ids may be specified here.}
+\item{independent_var_range}{By default \code{loess} is fitted for the full range of the independent variable. A limited range may be specified here, usually an \code{integer} vector.}
 
-\item{year_selection}{By default \code{loess} is fitted for all years. A selection of years may be specified here.}
+\item{dependent_var}{The data column of the values to be fitted by \code{loess}.}
 
-\item{fit_columns}{The columns to be fitted by \code{loess}.}
+\item{group_subset}{By default \code{loess} is fitted for all groups. A subset may be specified as \code{character} vector.}
 
-\item{span_interval}{The span intervall to be considered for optimization of loess span.}
+\item{span_interval}{The span interval to be considered for AICC optimization of the loess span. By default \code{c(.1,.9)}.}
 }
 \value{
-The original \code{DT} with additional columns as specified via \code{fit_columns} with the suffix \code{"_loess"}.
-         The entires in the new columns for combinations of year and topic that have not specified in
-         the \code{topic_selection} or \code{year_selection} are set to \code{NA} (standard DT join).
+The original \code{x} with tow additional columns named \code{"aicc_loess_value"} and \code{"aicc_span"}
+        Entries in aicc_span are identical for an individual group.
+        The entries in the additional columns that correspond to excluded groups or independent variables appear as \code{NA}.
 }
 \description{
-Given a data.table with a year and topic column and additional columns with values for these variables (e.g. mean topic probability per year),
-the function fits a loess model and optimizes the span via Akaikes information criterion for each topic.
-Modelling may be limited to a specified time range.
-The results are joined with the input data.table. NOTE: currently the order of columns is not preserved.
+Given a data.table, three columns may be specified as dependent variable, independent variable, and group respectively
+to fit an AICC-optimized-span loess model. The information about selected span and predicted values is added as new columns per group.
+}
+\examples{
+
+# the following example show how aicc loess
+# produces a fit that is more sensible to the data
+# in comparison to standard loess using a span of 0.75
+# if such less smooth appearance makes sense is, of course, case specific
+
+years <- 1990:2010
+set.seed(42)
+topics <- c(rep(1, length(years)), rep(2, length(years)))
+values1 <- jitter(rnorm(length(years), mean = 0.5, sd = .25), amount = pi)
+values2 <- jitter(rnorm(length(years), mean = 0.25, sd = 0), amount = exp(1))
+
+data <- data.table(year = years, topic = topics, value = c(values1, values2))
+data <- loess_aicc_optimized(x = data
+                             , independent_var = "year"
+                             , independent_var_range = 1991:2009
+                             , dependent_var = "value"
+                             , groups = "topic"
+                             , group_subset = NULL
+                             , span_interval = NULL
+                             , degree = 2
+                             , family = "gaussian"
+                             , normalize = TRUE)
+# check the new content
+data
+
+plot(data[topic == 1,year], data[topic == 1,value], col = 1, ylim = c(min(data$value), max(data$value)))
+#default span is set to 0.75 in loess; this is explicitly included in below call for the sake of clarity
+lines(data[topic == 1,year], predict(loess(value ~ year, span = 0.75, data = data[topic == 1,])), col = 1, lty = "dashed")
+lines(data[topic == 1,year], data[topic == 1,aicc_loess_value], col = 1, lty = "solid")
+legend(x = 1990, y = -1, c("solid: loess_aicc\\ndashed: loess_standard"))
+
+plot(data[topic == 2,year], data[topic == 2,value], col = 1)
+lines(data[topic == 2,year], predict(loess(value ~ year, data = data[topic == 2,])), col = 1, lty = "dashed")
+lines(data[topic == 2,year], data[topic == 2,aicc_loess_value], col = 1, lty = "solid")
+legend(x = 1990, y = 2, c("solid: loess_aicc\\ndashed: loess_standard"))
 }
