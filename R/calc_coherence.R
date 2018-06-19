@@ -85,14 +85,14 @@ calc_coherence <-  function( top_term_matrix
          Please check tcm, the sets of the terms have to be the same (they do not necessarily have to be in the same order).")
   }
   #check if tcm includes all top terms
-  if ( intersect(top_unq, colnames(tcm)) == top_unq) {
+  if (!(all(intersect(top_unq, colnames(tcm)) == top_unq) == TRUE)) {
     warning("Not all terms of top_term_matrix are included in tcm.
-          For individial topics coherence scores would be based on incomplete word sets.
+          For individual topics coherence scores would be based on incomplete word sets.
           Please adapt top term matrix or tcm to ensure full intersection of terms.")
   }
   #reduce tcm to top word space (makes tcm symmetric)
   #TODO
-  top_unq_subset <- colnames(tcm) %in% top_unq
+  top_unq_subset <- which(colnames(tcm) %in% top_unq)
   tcm <- tcm[top_unq_subset, top_unq_subset]
 
   #order tcm by term probability (entries in diagonal)
@@ -132,16 +132,16 @@ calc_coherence <-  function( top_term_matrix
   #   ), units = "Mb")
   #hence, workaround using base::matrix for faster subsetting instead of sparseMatrix seems acceptable
   tcm <- as.matrix(tcm)
-  #TODO #depending on input, matrix might have to be turned to upper triangle matrix
-  if (any((sign(tcm[upper.tri(tcm, diag = F)]) + sign(t(tcm)[upper.tri(tcm, diag = F)])) > 1)) {
-    warning("Input TCM is not symmetric or not coercible to upper triangle matrix.
-            Entries of upper and lower triangle overlap (both have entries >1) where one of the entries should be zero.")
-  }
-  #make upper triangle matrix
-  tcm[upper.tri(tcm, diag = F)] <- tcm[upper.tri(tcm, diag = F)] + t(tcm)[upper.tri(tcm, diag = F)]
-  #setting lower triangle to zero is not necessary since index combinations are only taken from upper triangle
-  #however, to make potential mistakes in index subsetting visible it is still set to zero
-  tcm[lower.tri(tcm, diag = F)] <-  tcm[upper.tri(tcm, diag = F)]
+  # #TODO #depending on input, matrix might have to be turned to upper triangle matrix
+  # if (any((sign(tcm[upper.tri(tcm, diag = F)]) + sign(t(tcm)[upper.tri(tcm, diag = F)])) > 1)) {
+  #   warning("Input TCM is not symmetric or not coercible to upper triangle matrix.
+  #           Entries of upper and lower triangle overlap (both have entries >1) where one of the entries should be zero.")
+  # }
+  # #make upper triangle matrix
+  # tcm[upper.tri(tcm, diag = F)] <- tcm[upper.tri(tcm, diag = F)] + t(tcm)[upper.tri(tcm, diag = F)]
+  # #setting lower triangle to zero is not necessary since index combinations are only taken from upper triangle
+  # #however, to make potential mistakes in index subsetting visible it is still set to zero
+  # tcm[lower.tri(tcm, diag = F)] <-  tcm[upper.tri(tcm, diag = F)]
 
 
 #GET REFERENCE INDICES OF TOP TERMS IN TCM FOR EACH TOPIC---------------------------
