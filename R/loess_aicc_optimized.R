@@ -1,10 +1,8 @@
 
 #' Fitting of AICC optimized loess (groupwise)
 #'
-#' Given a data.table with a year and topic column and additional columns with values for these variables (e.g. mean topic probability per year),
-#' the function fits a loess model and optimizes the span via Akaikes information criterion for each topic.
-#' Modelling may be limited to a specified time range.
-#' The results are joined with the input data.table. NOTE: currently the order of columns is not preserved.
+#' Given a data.table, three columns may be specified as dependent variable, independent variable, and group respectively
+#' to fit an AICC-optimized-span loess model. The information about selected span and predicted values is added as new columns per group.
 #'
 #' @param x A \code{data.table} with data in long format (use \code{data.table::melt} if your data is in wide format).
 #' @param group_subset By default \code{loess} is fitted for all groups. A subset may be specified as \code{character} vector.
@@ -12,8 +10,8 @@
 #' @param dependent_var The data column of the values to be fitted by \code{loess}.
 #' @param span_interval The span interval to be considered for AICC optimization of the loess span. By default \code{c(.1,.9)}.
 #'
-#' @return The original \code{x} with tow additional columns named \code{"loess_value"} and \code{"span"}
-#'         Entries in span are identical for an individual group.
+#' @return The original \code{x} with tow additional columns named \code{"aicc_loees_value"} and \code{"aicc_span"}
+#'         Entries in aicc_span are identical for an individual group.
 #'         The entries in the additional columns that correspond to excluded groups or independent variables appear as \code{NA}.
 #' @export
 #'
@@ -47,12 +45,12 @@ data
 plot(data[topic == 1,year], data[topic == 1,value], col = 1, ylim = c(min(data$value), max(data$value)))
 #default span is set to 0.75 in loess; this is explicitly included in below call for the sake of clarity
 lines(data[topic == 1,year], predict(loess(value ~ year, span = 0.75, data = data[topic == 1,])), col = 1, lty = "dashed")
-lines(data[topic == 1,year], data[topic == 1,loess_value], col = 1, lty = "solid")
+lines(data[topic == 1,year], data[topic == 1,aicc_loees_value], col = 1, lty = "solid")
 legend(x = 1990, y = -1, c("solid: loess_aicc\ndashed: loess_standard"))
 
 plot(data[topic == 2,year], data[topic == 2,value], col = 1)
 lines(data[topic == 2,year], predict(loess(value ~ year, data = data[topic == 2,])), col = 1, lty = "dashed")
-lines(data[topic == 2,year], data[topic == 2,loess_value], col = 1, lty = "solid")
+lines(data[topic == 2,year], data[topic == 2,aicc_loees_value], col = 1, lty = "solid")
 legend(x = 1990, y = 2, c("solid: loess_aicc\ndashed: loess_standard"))
 
 
@@ -112,7 +110,7 @@ loess_aicc_optimized <- function(x
   }
 
   # initialize new columns
-  x <- cbind(x, loess_value = rep(NA_real_, nrow(x)), span = rep(NA_real_, nrow(x)))
+  x <- cbind(x, aicc_loess_value = rep(NA_real_, nrow(x)), aicc_span = rep(NA_real_, nrow(x)))
   # optimiize
   for (g in group_subset) {
     loess_data <- x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, .SD, .SDcols = c(independent_var, groups, dependent_var)]
@@ -127,8 +125,8 @@ loess_aicc_optimized <- function(x
                                             , span = ", span_optimum, # <<< optimized span
                                             ",degree = ", degree, ", family = \"", family, "\", normalize = ", normalize,")")))
     #update data with loess data
-    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, loess_value:= predict(loess_model_optimum)]
-    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, span:= rep(span_optimum, nrow(loess_data))]
+    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, aicc_loees_value:= predict(loess_model_optimum)]
+    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, aicc_span:= rep(span_optimum, nrow(loess_data))]
   }
   return(x)
 }
