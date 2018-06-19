@@ -8,10 +8,6 @@ get_extrema(x, format_output = c("boolean", "idxs_values"))
 }
 \arguments{
 \item{x}{A numeric vector to be analyzed for extreme points.}
-
-\item{format_output}{May be set to "boolean" or "idxs_values".
-"boolean" returns boolean vectors with TRUE for local maxima and minima positions in \code{x}.
-"idxs_values" returns the number, indices and asociated values of maxima and minima.}
 }
 \value{
 A \code{list} storing the boolean positions of extrema or the number, indices and asociated values of maxima and minima.

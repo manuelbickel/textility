@@ -272,15 +272,15 @@ data("AssociatedPress", package = "topicmodels")
 dtm <- AssociatedPress[1:100,]
 fitted <- LDA(dtm, method = "Gibbs" , control = list(alpha = alpha_prior, seed = seedpar), k = n_topics)
 
-tt_mat <- top_feature_matrix(fitted@beta, terms = fitted@terms, n = n_topwords, include_all_ties = FALSE)
+tt_mat <- make_top_term_matrix(fitted@beta, terms = fitted@terms, n = n_topwords)
 dtm_tt <- dtm[,(unique(as.vector(tt_mat)))]
 tcm_tt <- get_cooccurrence(dtm_tt)
-#
-# coherence <- coherence2( tcm = tcm_tt
-#                              , top_term_matrix = tt_mat
-#                              #, average_over_topics = FALSE
-#                              #, log_smooth_constant =  .01#.1e-12 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
-#                              , n_tcm_windows = nrow(dtm))
+
+coherence <- coherence( tcm = tcm_tt
+                             , top_term_matrix = tt_mat
+                             #, average_over_topics = FALSE
+                             #, log_smooth_constant =  .01#.1e-12 #default = smaller smoothing constant in paper by Röder #1 would be UMass, #.01 stm package
+                             , n_tcm_windows = nrow(dtm))
 
 
 #1b - test if input from text2vec works ---------------------------------------------------------------
@@ -331,12 +331,10 @@ semCoh1_stmoriginal <- function(mat, M, beta){
 }
 
 #directly compare results
-coherence <- coherence2( twcm = tcm_tt
+coherence <- coherence( tcm = tcm_tt
                              , top_term_matrix = tt_mat
 
-                           ,measure = c("all",  "prob_diff_nonvectorized")
-
-                             , n_twcm_windows = nrow(dtm))
+                             , n_tcm_windows = nrow(dtm))
 coherence[,  stm_semCo:=  round(semCoh1_stmoriginal(mat = dtm, M = n_topwords, beta = fitted@beta), d = 4)]
 coherence[,compare:= (sum_logratio_stm_pckg - stm_semCo)]
 coherence
@@ -346,14 +344,5 @@ coherence
 # 3:    T3       -64.4604  -82.1350       -1.4825 1.2059 0.2805   0.3168  -64.4604       0
 # 4:    T4      -153.6410 -173.3197       -1.8565 2.1617 0.3801   0.2525 -153.6410       0
 # 5:    T5      -105.8565 -114.5438       -1.7396 1.0560 0.2242   0.2340 -105.8565
-
-beta <-  fitted@beta
-colnames(beta) <- colnames(dtm)
-textmineR::CalcProbCoherence(phi = beta
-                                  ,dtm = tripl_to_sparse(dtm)
-                                  ,M =   n_topwords)
-
-
-
 
 
