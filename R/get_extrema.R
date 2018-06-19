@@ -11,7 +11,7 @@
 #'
 #' @param x A numeric vector to be analyzed for extreme points.
 #' @param format_output May be set to "boolean" or "idxs_values".
-#'                     "Boolean" returns boolean vectors with TRUE for local maxima and minima positions in \code{x.
+#'                     "boolean" returns boolean vectors with TRUE for local maxima and minima positions in \code{x}.
 #'                     "idxs_values" returns the number, indices and asociated values of maxima and minima.
 #'
 #' @return A \code{list} storing the boolean positions of extrema or the number, indices and asociated values of maxima and minima.
