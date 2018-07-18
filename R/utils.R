@@ -33,6 +33,25 @@ gradient_numeric <- function(x, y) {
   cbind(position, gradient)
 }
 
+#' Initializes the standard specifications for tcms to be used as reference for coherence calculation
+#'
+#' @return data.table with standard specifications, see example...
+#' @export
+#'
+#' @examples
+#' tcm_specs_standard()
+#' #            tcm_id type window_size
+#' # 1: standard_ref_1  ext           5
+#' # 2: standard_ref_2  ext          10
+#' # 3: standard_ref_3  ext         110
+#' # 4: standard_ref_4  int         Inf
+tcm_specs_standard = function() {
+  data.table(tcm_id = c("standard_ref_1","standard_ref_2","standard_ref_3","standard_ref_4")
+             ,type = c("ext", "ext", "ext", "int")
+             ,window_size = c(5,10,110,Inf)
+  )
+}
+
 # DEPRECATED FUNCTIONS KEPT FOR THE PURPOSE OF DOCUMENTATION
 calc_coherence = function(X) {
   .Deprecated("text2vec::coherence")
