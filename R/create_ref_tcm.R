@@ -25,7 +25,7 @@
 #'
 #' tokens = word_tokenizer(doc)
 #' it = itoken(tokens)
-#' v = create_vocabulary(it)
+#' v = create_vocabulary(it,  ngram = c( 1L, ngram_max = 2L))
 #' vectorizer = vocab_vectorizer(v)
 #' dtm = create_dtm(it, vectorizer)
 #'
@@ -43,7 +43,7 @@
 #' # [3] "tcm__standard_ref_3__ext__ws_110.rds" "tcm__standard_ref_4__int__ws_Inf.rds"
 #'
 #' # check two of the created tcms
-#' tcm5 = readRDS("tcm__standard_ref_1__ext__ws_5.rds")
+#' tcm5 = readRDS(paste0(dir_test, "/tcm__standard_ref_1__ext__ws_5.rds"))
 #'
 #' attr(tcm5, "term_coverage_rate_tcm_dtm")
 #' # [1] 0.75
@@ -59,7 +59,7 @@
 #' # A . 2 2
 #' # x . . 8
 #'
-#' tcm110 = readRDS("tcm__standard_ref_3__ext__ws_110.rds")
+#' tcm110 = readRDS(paste0(dir_test, "/tcm__standard_ref_3__ext__ws_110.rds"))
 #' attr(tcm110, "term_coverage_rate_tcm_dtm")
 #' # [1] 0.75
 #' tcm110
@@ -96,6 +96,13 @@ create_reference_tcm = function(dtm, tokens_ext, ngram_order = NULL,  tcm_specs 
   n_skip_gram_windows = sum(sapply(tokens_ext, function(x) {length(x)}))
 
   it = itoken(iterable = tokens_ext, progressbar = FALSE, n_chunks = 10)
+  #if sufficient RAM is available go parallel
+  #N_WORKERS = 2
+  #if(require(doParallel)) registerDoParallel(N_WORKERS)
+  # it = itoken_parallel(iterable = tokens_ext
+  #                         ,progressbar = FALSE
+  #                         ,n_chunks = 10
+  # )
 
   #check higher order collocations to set ngram order in external vocabulary
   if (is.null(ngram_order)) {
