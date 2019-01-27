@@ -1,10 +1,19 @@
+<<<<<<< HEAD
 #' (nUmerically robust) Dimension reduction via Jensen-Shannon Divergence & Principal Components
+=======
+#' (numerically robust) Dimension reduction via Jensen-Shannon Divergence & Principal Components
+>>>>>>> 090e9b94a8174eb89b8bacf7a22f170ffd578885
 #'
 #' This function is a largely a copy of the repsective function in
 #' https://github.com/cpsievert/LDAvis/blob/master/R/createJSON.R, however,
 #' with a fix to avoid log(0) proposed by Maren-Eckhoff in
 #' https://github.com/cpsievert/LDAvis/issues/56
 #'
+<<<<<<< HEAD
+=======
+#' (function currently a pending issue in text2vec package)
+#'
+>>>>>>> 090e9b94a8174eb89b8bacf7a22f170ffd578885
 #' @param phi matrix, with each row containing the distribution over terms
 #' for a topic, with as many rows as there are topics in the model, and as
 #' many columns as there are terms in the vocabulary.
@@ -24,6 +33,9 @@ jsPCA_robust <- function(phi) {
   pca.fit <- stats::cmdscale(dist.mat, k = 2)
   data.frame(x = pca.fit[,1], y = pca.fit[,2])
 }
+<<<<<<< HEAD
 
 
 View(LDAvis::jsPCA)
+=======
+>>>>>>> 090e9b94a8174eb89b8bacf7a22f170ffd578885

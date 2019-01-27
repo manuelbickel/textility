@@ -7,8 +7,13 @@
 jsPCA_robust(phi)
 }
 \arguments{
+<<<<<<< HEAD
 \item{phi}{matrix, with each row containing the distribution over terms 
 for a topic, with as many rows as there are topics in the model, and as 
+=======
+\item{phi}{matrix, with each row containing the distribution over terms
+for a topic, with as many rows as there are topics in the model, and as
+>>>>>>> 090e9b94a8174eb89b8bacf7a22f170ffd578885
 many columns as there are terms in the vocabulary.}
 }
 \description{
