@@ -1,0 +1,3412 @@
+---
+title: "textility"
+author: "Manuel Bickel"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  html_document:
+    number_sections: yes
+    theme: lumen
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+The following code (and corresponding package textility) was frozen for the purpose of documenting the methodology for publication of a scientific article that is based on the topic model of research on sustainable energy resulting from this code. Hence, this form of documenting the code rather serves for demonstrating a rigorous methodology was followed. The code includes various comments on the interim steps taken or interim results, which are good for documentation but not for actively using the code. In the meantime, several improvements and changes have been applied. Therefore, I would highly recommend interested readers to refer to the most recent version of the code, which is documented in the textility package on Github:
+https://github.com/manuelbickel/textility
+
+It should be noted that, due to copyright restrictions by Elsevier, the full data set for the study cannot be shared.
+Only the document term matrix can be püblished along with this code. The dtm represents a bag of words model
+that inhibits re-constructing the copyrighted abstracts in their original form.
+
+Due to these restrictions regarding data, users who want to reproroduce restults can only start from the step / section:
+Latent Dirichlet Allocation. Hence, the collocation modellilng and part of speech tagging modls cannot be changed.
+
+Users with access to Scopus may compile the original data base themselves (and could then run the full code)
+on the basis of the DOI / EID numbers provided along with the data.
+
+# Set Directories / Load Libraries
+```{R load-libraries, eval= FALSE, message=FALSE, warning=FALSE}
+ # directories_libraries ---------------------------------------------------
+  Sys.setenv(LANG = "en")
+  # set directories =================================================
+  dirproj = "C:/Science/Publication/3_sustainable_energy/"
+  dirdat =  paste0(dirproj, "data/")
+  dirwiki =  paste0(dirproj, "/data/wiki_refs/")
+  dirres = paste0(dirproj, "results/")
+  dirmod = paste0(dirres, "models/")
+  # load libraries =================================================
+  libraries = c(
+    "text2vec"
+    ,"stringi"
+    ,"Matrix"
+    ,"data.table"
+    ,"magrittr"
+    , "doParallel"
+    , "zoo"
+    , "LDAvis"
+    , "servr"
+    , "ggplot2"
+    ,"gridExtra"
+    , "koRpus"
+    ,"textility"
+    ,"igraph"
+    ,"WikipediR"
+    , "svglite"
+  )
+  for (l in libraries) library(l,character.only=TRUE,quietly=TRUE,verbose=FALSE)
+
+  modelfiles = readRDS(paste0(dirdat, "warp_lda_run3_model_filenames.RDS"))
+  load(file = paste0(dirdat, "18_vectorization_completed.RData"))
+```
+
+# Import Stopwords
+```{R stopwords, message=FALSE, warning=TRUE, eval = FALSE}
+  # 2_stopwords_stopphrases ---------------------------------------------------
+  # combine stopwords: from packages, manual definition =================================================
+  stopwords = c(tm::stopwords("SMART"), tm::stopwords("en")#, tokenizers::stopwords("en")
+  ,"approach", "methodolology", "paper", "publish", "publication", "abstract", "conclusion", "method"
+  ,"original", "article", "issue", "study", "studied", "published",  "contribution", "contribute"
+  ,"issue","noabstract", "become", "br", "br_br", "inf", "inf_inf"
+  )
+  # clean =================================================
+  stopwords = unlist(stringi::stri_split_regex(stopwords, "\\s|\\W|\\t|\\n"))  %>%
+               unique() %>%
+               .[. != ""] #exclude empty lines (just to be sure)
+
+  # exlcude selected words from stopwords list =================================================
+  stopwords = setdiff(stopwords,
+                       c("least", "mine", "change", "changes", "whole", "old", "new",
+                         "no","not", "none","ignored","poorely", "shortcomings", "questionable", "lacking", "reject", "overlooks", "restricted",
+                          "contested", "controversial", "inadequacies", "inaccurate", "adequate", "abilities", "attempted", "break",
+                          "government", "governing", "agencies", "agency", "laboratory", "experiment",
+                          "governments", "strategy", "strategies", "innovative", "innovation",
+                          "association", "standard", "standardised", "discourse", "discourses",
+                          "biological", "ground", "biosynthetic", "framework", "criticisms", "embodies", "error", "exposition",
+                          "measurement", "constitutes", "critics", "emerged", "synthesis" ,"adopted", "assess", "criteron", "critiqued", "nature"
+                           )
+                        )
+  # stopphrases =================================================
+  stopphrases = readLines(paste0(dirdat, "stopwords/stopphrases_msu_jdowell_and_smart_wordsorg.txt"))
+  #the following phrases emerged from inspecting the data,
+  #one would usually add such phrases at a later step in the code
+  stopphrases = c(stopphrases,
+                   "graphical abstract","figure not available", "see fulltext")
+  #several of the stopphrases are removed anyway during other pre-processing steps.
+  #E.g., by setting minimum token length. If speed is an issue with respect to stopphrases
+  #one might check which of the stopphrases are removed anyway and remove them from the list.
+```
+
+# Import / Subset Data
+```{R import-data, message=FALSE, warning=FALSE, eval = FALSE}
+  # 3_data_import_and_selection ---------------------------------------------------
+  # import data  =================================================
+  data = list.files(paste0(dirdat, "csv_export/"), pattern = ".csv",  full.names = TRUE)
+  data = rbindlist(lapply(data, function(f) {
+    read.csv(f, sep = ",", header = T, stringsAsFactors = F)
+  }))
+  
+  data_for_documentation = unique(data[, .(DOI, ISSN, ISBN, PubMed.ID, EID, Source)])
+  write.csv(data_for_documentation, paste0(dirdat, "data_DOIs_and_other_IDs.csv"))
+  
+  # add information on: id, nchar in abstract  =================================================
+  data[, id := 1:nrow(data)]
+  data[, ncharAbstract := nchar(Abstract)]
+  # remove duplicates =================================================
+  data = data[ !duplicated(data[, "EID"]), ]
+  n_docs_raw = nrow(data)
+  # remove additional ids on basis of duplicated titles
+  data =  data[!(duplicated(Title)), ]
+  # also use titles after removing punctuation and blanks
+  #(this could be dine directly in above call, just done separately for the sake of clarity)
+  data =  data[!(duplicated(tolower(gsub("\\W|", "", Title, perl = T)))), ]
+  # check number of entries: OK, fits to number of docs in Scopus (1 element is missing)
+  # remove documents: missing abstract or less than 200 characters  =================================================
+  min_doc_length = 200
+  empty_doc_pattern = "(?i)no abstract|^$"
+  data = data[with(data, !(Abstract %like% empty_doc_pattern | ncharAbstract < min_doc_length)), ]
+  # remove documents: conference proceedings and technical reports =================================================
+  # as.data.frame(data[ Source.title %like% "report|Report|conference|Conference"  , c("Source.title", "Document.Type", "Publisher")])
+  source_titles_maybe_remove = unique(data[ Source.title %like% "report|Report|conference|Conference"  , Source.title])
+  #the following list was checked manually, the decision regarding keep/remove is added as comment at the end of each line
+  # [1] "USDA Forest Service - General Technical Report PNW-GTR"  #https://www.fs.fed.us/pnw/publications/gtrs.shtml
+  # [2] "Czech Polar Reports" #keep    #http://www.sci.muni.cz/CPR/
+  # [3] "USDA Forest Service - General Technical Report PNW"  #same as above
+  # [4] "Biotechnology Reports"   #keep #https://www.journals.elsevier.com/biotechnology-reports/
+  # [5] "Annual Reports on the Progress of Chemistry - Section B"  #exclude, a review journal https://en.wikipedia.org/wiki/Annual_Reports_on_the_Progress_of_Chemistry
+  #http://pubs.rsc.org/en/journals/journalissues/ar#!issueid=ar1966_63_0&type=archive&issnprint=0365-6217
+  # [6] "Minerals and Energy - Raw Materials Report" #keep  #http://www.tandfonline.com/action/journalInformation?journalCode=smin20
+  # [7] "Moravian Geographical Reports"    #keep
+  # [8] "Oceans Conference Record (IEEE)"   #http://www.scimagojr.com/journalsearch.php?q=13654&tip=sid&clean=0
+  # [9] "Water Environment '96. Supply and demand - a fragile balance. Proc. conference, London, 1996" #http://searchfirst.library.unsw.edu.au/primo_library/libweb/action/dlDisplay.do?vid=UNSWS&docId=UNSW_ALMA51183019620001731&fromSitemap=1&afterPDS=true
+  # [10] "General Technical Report - US Department of Agriculture, Forest Service" #same as above USDA
+  # [11] "Executive Report, International Institute for Applied Systems Analysis"
+  # [12] "Geneva Reports on the World Economy"   #http://cepr.org/content/geneva-reports-world-economy-0
+  # [13] "Atomic Energy of Canada Limited, AECL (Report)"    #http://www.scimagojr.com/journalsearch.php?q=29349&tip=sid&clean=0
+  # [14] "Energy Reports" #https://www.journals.elsevier.com/energy-reports/
+  # [15] "Quarterly Report of RTRI (Railway Technical Research Institute) (Japan)"  #http://www.rtri.or.jp/eng/publish/qr/
+  # [16] "Quarterly Report of RTRI (Railway Technical Research Institute)"    #see above
+  # [17] "Canadian Geotechnical Conference"   #https://www.cgs.ca/
+  # [18] "JFE Technical Report"  #http://www.jfe-steel.co.jp/en/research/report.html
+  # [19] "Conference Record of the IEEE Photovoltaic Specialists Conference"  #http://www.scimagojr.com/journalsearch.php?q=17298&tip=sid
+  # [20] "DWI Reports"   #http://www.scimagojr.com/journalsearch.php?q=15365&tip=sid&clean=0
+  # [21] "IERE Conference Proceedings"  #https://trove.nla.gov.au/work/9201616?selectedversion=NBD27673
+  # [22] "R and D: Research and Development Kobe Steel Engineering Reports" #exclude, company
+  # [23] "Kawasaki Steel Technical Report"  #exclude, company
+  # [24] "Nippon Steel Technical Report"  #exclude, company
+  # [25] "Scientific Reports"  #keep #https://www.nature.com/srep/about
+  # [26] "Journal of Physics: Conference Series" #http://iopscience.iop.org/journal/1742-6596  #https://en.wikipedia.org/wiki/Journal_of_Physics:_Conference_Series
+  # [27] "Romanian Reports in Physics" #http://www.rrp.infim.ro/aims.html
+  # [28] "AHURI Final Report" #https://www.ahuri.edu.au/research
+  # [29] "Field Actions Science Report"  #exclude, company #https://www.institut.veolia.org/fr
+  # [30] "China Report"  #unclear at first sight, check abstracts:  data[ Source.title ==  "China Report" , Abstract] #keep #https://uk.sagepub.com/en-gb/eur/china-report/journal200761#description
+  # [31] "Environmental Change and Security Project report" #unclear check manually data[ Source.title ==  "Environmental Change and Security Project report" , Abstract] #exclude #https://www.ncbi.nlm.nih.gov/nlmcatalog/101085292
+  # documents to be kept although marked as proceeding or report
+  keep_source_titles = c("Czech Polar Reports"
+                          , "Biotechnology Reports"
+                          , "Minerals and Energy - Raw Materials Report"
+                          , "Moravian Geographical Reports"
+                          , "Scientific Reports"
+                          , "Romanian Reports in Physics")
+  remove_source_titles = setdiff(source_titles_maybe_remove, keep_source_titles)
+  data = data[with(data, !(Source.title %in% remove_source_titles)), ]
+  #clean interim variables
+  rm(source_titles_maybe_remove, keep_source_titles, remove_source_titles)
+
+#remove documents: editorial articles and special issue introductions =================================================
+delete_ids = sapply(c("this editorial"
+                        ,"the editorial article"
+                        ,"This introductory article of the special issue"
+                        ,"this special issue"
+                        ,"the introduction to the special issue"
+                        ,"invited me to edit a special issue"
+                        ,"The special issue of International Journal"
+                        ,"introduction article to the special issue"
+                        ,"This paper summarises the contributions to a special issue"
+                        ,"introduction to the SPECIAL ISSUE"
+                        ,"answer the questions posed by the SPECIAL ISSUE"
+                        ,"This double SPECIAL ISSUE"
+                        ,"This paper provides an overview of the SPECIAL ISSUE"), function(x) {
+                           data[grep(x, Abstract, ignore.case = T), id]
+                        }, USE.NAMES = F)
+delete_ids = unique(unlist(delete_ids))
+data = data[with(data, !(id %in% delete_ids)), ]
+
+
+# remove conference proceedings from Abstracts =================================================
+data[grepl("proceedings", Abstract, ignore.case = T)]
+
+#delete all Abstracts beginning with ""The proceedings contain \\d+ papers."
+#since these abstracts are only summaries of the content of a specific conference
+#substr(data[grep("^The proceedings contain \\d+ papers", Abstract)], 1, 200)
+data = data[!grepl("^The proceedings contain \\d+ papers", Abstract)]
+
+#also one instance with spelling error
+data = data[!grepl("^The proceedings contains \\d+ papers", Abstract)]
+
+#check pattern again
+#data[grepl("^(?=.*conference)(?=.*proceedings)", Abstract, ignore.case = T, perl = T),]
+delete_elements = c("The present paper is a review of several papers from the Proceedings of the Joint European Thermodynamics Conference"
+                     ,"The water, energy and food-security nexus approach put forward by the Bonn2011 Conference highlights the need for an integrative approach towards issues of water"
+                     ,"This paper has been written on the base of Romerio, 1994, which includes 80 pages of references (here we only quote some of them which are particularly significant)"
+                     , "The aim of the proceedings was to review current research and development in the use of trees for shelter in all relevant applications")
+
+data = data[!grepl(paste(delete_elements, collapse = "|"), Abstract)]
+
+#check pattern again
+data[grepl("proceedings", Abstract, ignore.case = T)]
+#looks ok now
+```
+
+# Prepare documents
+## Clean Documents
+### Clean patterns
+```{R clean-patterns, message=FALSE, warning=FALSE, eval = FALSE}
+    # interim_check:hist_abstract_length -----------------------------------------
+  hist_nchar_abstracts_uncleaned = ggplot(data = data[  , c("ncharAbstract", "id")], aes(data[ , ncharAbstract])) +
+    geom_histogram(bins = 50) +
+    ylab("Number of characters in abstracts") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(size=10
+                                 , angle=90)) +
+    scale_x_continuous(breaks=seq(min(data$ncharAbstract, na.rm = TRUE)
+                                  , max(data$ncharAbstract, na.rm = TRUE), 100))
+
+  #check the abstracts that might be of long but acceptable range
+  hist_nchar_abstracts_nchar_max_5k_uncleaned = ggplot(data = data[ ncharAbstract <= 5000  , c("ncharAbstract", "id")], aes(data[ ncharAbstract <= 5000  , ncharAbstract])) +
+    geom_histogram(bins = 50) +
+    ylab("Number of characters in abstracts") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(size=10
+                                 , angle=90)) +
+    scale_x_continuous(breaks=seq(min(data$ncharAbstract, na.rm = TRUE)
+                                  , max(data$ncharAbstract, na.rm = TRUE), 100))
+  hist_nchar_abstracts_nchar_max_5k_uncleaned
+ # interim_check:hist_abstract_length ----------------------------------------------
+
+
+  #before going further, erase copyright information from data
+  #erase trailing copyright information patterns
+  #since there is no clear pattern to erase copyright information safely from all abstracts
+  #this taks is done iteratively / manually
+  #the individual steps are wrapped inside a function that only takes docs as input
+  #function is used to be able to run the whole script at once and delete interim variables after cleaning (free memory)
+  #of course the steps can be executed indivdually if interim results shall be checked
+
+  Encoding(data$Abstract) = "UTF-8"
+  copyrightsymbol = stringi::stri_trans_general("\u00A9", "Hex-Any/Name")
+  #how many Abstracts include copyright symbol
+  Abstracts_w_copyrightsymbol_total = length(grep(copyrightsymbol, data$Abstract))
+  #[1] 25519
+
+  # 4.1a copyright pattern: symbol - well formatted information #########################################
+  #, which is marked by copyright symbol, e.g., "text. ? 2011 Elsevier Ltd."
+  #estimate length of trailing pattern to 1000 chars
+  pattern = paste0("(.*)(", copyrightsymbol, "\\s\\d{4}|", copyrightsymbol, "\\d{4})(.{1,1000}$)")
+  Abstracts_tail = gsub(pattern, "\\2\\3", data$Abstract, ignore.case = T, perl = T)
+  #summary(nchar(Abstracts_tail))
+  # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+  # 7.0    20.0    41.0   392.1   654.0  9993.0
+
+  #check result for trailing pattern with 401 chars, only the Abstracts that include the pattern
+  pattern = paste0("(.*)(", copyrightsymbol, "\\s\\d{4}|", copyrightsymbol, "\\d{4})(.{1,401}$)")
+  Abstracts_tail = gsub(pattern, "\\2\\3", data$Abstract[grep(pattern, data$Abstract, perl = T)], ignore.case = T, perl = T)
+  #summary(nchar(Abstracts_tail))
+  # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+  # 7.00   20.00   33.00   34.66   41.00  268.00
+
+  #one raqndom example of a longer tail
+  #Abstracts_tail
+  nchar_long =  nchar(copyrightsymbol%s+%" 2014 by the American Society of Agronomy, 5585 Guilford Road, Madison, WI 53711. All rights reserved.")
+
+  #the following looks fine...
+  #Abstracts_tail[which(nchar(Abstracts_tail) > nchar_long  )]
+  #Abstracts_tail[which(nchar(Abstracts_tail) < 40 )]
+
+  #hence, the pattern can be erased from the Abstracts...
+  data[,  Abstract:= gsub(paste0("(", copyrightsymbol, "\\s\\d{4})(.{1,401}$)"), "", Abstract, ignore.case = T, perl = T)]
+  data[,  Abstract:= gsub(paste0("(", copyrightsymbol, "\\d{4})(.{1,401}$)"), "", Abstract, ignore.case = T, perl = T)]
+
+  #check how many Abstracts with copyright symbol are left
+  Abstracts_w_copyrightsymbol_remaining  = length(grep(copyrightsymbol, data$Abstract))
+  #[1] 2662
+
+  # 4.1b copyright pattern: symbol - remaining badly formatted information #########################################
+  pattern = paste0("(.*)( ", copyrightsymbol, ".{1,1000}$)")
+  Abstracts_tail = gsub(pattern, "\\2", data$Abstract[grep(pattern, data$Abstract, perl = T)], ignore.case = T, perl = T)
+  #summary(nchar(Abstracts_tail))
+  # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+  # 3.00   22.00   34.00   35.32   39.00  899.00
+  #Abstracts_tail[1:1000] #looks fine
+  #Abstracts_tail[1001:1999] # NOT fine
+  #[979] " COPYRIGHTSYMBOL  2008 Springer-Verlag Zusammenfassung: Das kontinuierliche Verkehrswachstum und die daraus resultierenden Umwelt- und Ressourcenprobleme des Verkehrsbereichs k?nnen zuk?nftig durch den konventionellen Einsatz fossiler Treibstoffe nicht bew?ltigt werden. Die Herausforderungen des Verkehrs liegen dabei zunehmend im Energiebereich. Energieeffizienz und erneuerbare Energien r?cken in den Mittelpunkt. Um fundamentale Verbesserungen zu erzielen, werden nachhaltige Strategien erforderlich sein, konsequent den Einsatz von CO2-emittierenden Treibstoffen einzuschr?nken und zu Null-Emissions-Fahrzeugen ?berzugehen. Der elektrische Antrieb im Fahrzeug sowie die nachhaltige elektrische Energieerzeugung der Antriebsenergie werden zuk?nftig an Bedeutung gewinnen. Im vorliegenden Beitrag werden deshalb die wesentlichen Aspekte der Energiebereitstellung f?r elektrische Mobilit?t dargelegt.
+  #[295] " COPYRIGHTSYMBOL 2009 Inderscience Enterprises Ltd. costs. Baranzini is the author of several publications on topics such as environmental policy instruments and green national accounting, the economics of sustainable development, water management, and the economic valuation of external costs and benefits. He is a member of several associations, a referee for various specialised journals and a member of the editorial board of the International Journal of Sustainable Development. Copyright "
+  #Abstracts_tail[2000:length(Abstracts_tail)] #NOT fine
+
+  #check some critical examples from above
+   interim = data[grep(pattern, Abstract, perl = T), Abstract] #looks fine, long patters emerge from ammended abstracts in additonal languae or ammended authors information
+   interim[which(nchar(Abstracts_tail) > 400)] #can all be deleted
+
+  #delete pattern
+  data[,  Abstract:= gsub(paste0("( ", copyrightsymbol, ".{1,1000}$)"), "", Abstract, ignore.case = T, perl = T)]
+
+  Abstracts_w_copyrightsymbol_remaining2  = length(grep(copyrightsymbol, data$Abstract))
+  # [1] 28
+
+  #check manually
+  #data$Abstract[grep(copyrightsymbol, data$Abstract)]
+  #everything after copyright symbol can be deleted in
+
+  patterns_long = c(copyrightsymbol%s+%" 2011 WILEY-VCH Verlag GmbH & Co. KGaA, Weinheim) Life cycle analysis is proposed as a tool for investigating the sustainability of nanostructured material"
+                     ,copyrightsymbol%s+%" 2008 Springer-Verlag Zusammenfassung: Seit Anbeginn der Zivilisation nimmt der Bedarf an Mobilit.t stetig zu."
+                     ,copyrightsymbol%s+%" 2001 Elsevier Science B.V.Charcoal is a major source for cooking energy in most African countries, for which demand from a burgeoning human population has sometimes outstripped the supply of wood from forests"
+  )
+  patterns_short_tail = c("Copyright ."%s+%copyrightsymbol%s+%" Materials Research Society 2015"
+                           ,copyrightsymbol%s+%" De Boeck Sup.rieur. Tous droits r.serv.s pour tous pays"
+                           ,copyrightsymbol%s+%" Dc Boeck Universit.."
+                           ,"."%s+%copyrightsymbol%s+%" IJTech 2011"
+                           ,copyrightsymbol%s+%" IWA Publishing 2012"
+                           ,copyrightsymbol%s+%" IWA Publishing 2010"
+                           ,copyrightsymbol%s+%" Emerald Group Publishing Limited."
+                           ,copyrightsymbol%s+%" Emerald Group Publishing Limited."
+                           ,copyrightsymbol%s+%" INRA and Springer-Verlag, France 2012"
+                           ,copyrightsymbol%s+%"Springer Science+Business Media B.V. 2009")
+
+  #delete manually identified short patterns
+  data[,  Abstract:= stri_replace_all_regex(Abstract, patterns_short_tail, "", vectorize_all = FALSE)]
+
+  #delete long patterns
+  pattern = paste0("(.*)(", copyrightsymbol, " \\d{4} )(WILEY|Springer|Elsevier)(.*$)")
+  Abstracts_tail = gsub(pattern, "\\2\\3\\4", data$Abstract[grep(pattern, data$Abstract, perl = T)], ignore.case = T, perl = T)
+  #Abstracts_tail #looks fine delete
+  data[,  Abstract:= gsub(paste0("(", copyrightsymbol, " \\d{4} )(WILEY|Springer|Elsevier)(.*$)"), "", Abstract, ignore.case = T, perl = T)]
+
+  Abstracts_w_copyrightsymbol_remaining3  = length(grep(copyrightsymbol, data$Abstract))
+  #16
+
+  #the remaining copyright symbols refer to licenced software, hence, no more deletion patterns
+  strsplit(data[grepl(copyrightsymbol , Abstract), Abstract], copyrightsymbol)
+
+  # 4.2 copyright pattern: (C) #########################################
+  #note the\\w, manual screening showed that there is only one abstract with ap pattern
+  #"(C) 1980 -" that should not be deleted, therefore, restriction to word symbol
+  pattern = paste0("(.*)(\\(C\\)\\s\\d{4} \\w|\\(C\\)\\d{4} \\w)(.*)($)")
+  Abstracts_with_copyrightpattern2 = length(grep(pattern, data$Abstract))
+  #[1] 62
+
+  Abstracts_tail = gsub(pattern, "\\2\\3", data$Abstract[grep(pattern, data$Abstract)], ignore.case = T, perl = T)
+  #summary(nchar(Abstracts_tail))
+  # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+  # 24.0    30.0    60.0   688.6  1458.8  2335.0
+
+  #one of the longer but still relatively short patterns
+  #nchar_long_pattern = nchar("(C) 2000 United Nations. Published by Elsevier Science Ltd. All rights reserved.")
+  #interim = data$Abstract[grep(pattern, data$Abstract)]
+  #interim[ which(nchar(Abstracts_tail) > nchar_long_pattern) ] #looks fine
+  #the text following the copyright symbol (C) is usually an extended abstract
+  #we only use the licenced abstract from the publisher, i.e., the first one
+  #pattern can be deleted
+
+  data[,  Abstract:= gsub(paste0("(\\(C\\)\\s\\d{4} \\w|\\(C\\)\\d{4} \\w)(.*)($)"), "", Abstract, ignore.case = T, perl = T)]
+
+  # 4.3 copyright pattern: "Published in" #########################################
+  data[grep("Published in", Abstract, fixed = T), Abstract]
+  data[,  Abstract:= gsub("Published in 1999 by John Wiley & Sons, Ltd.", "", Abstract, fixed = T)]
+  data[,  Abstract:= gsub("Published in 2007 by John Wiley and Sons, Ltd", "", Abstract, fixed = T)]
+
+
+  # 4.4 copyright pattern: "Copyright" #########################################
+  pattern = paste0("(.*)(Copyright)(.*$)")
+  #length(data$Abstract[grep(pattern, data$Abstract)])
+  #1054
+  Abstracts_tail = gsub(pattern, "\\2\\3", data$Abstract[grep(pattern, data$Abstract)], ignore.case = FALSE, perl = T)
+  #summary(nchar(Abstracts_tail))
+  # Min. 1st Qu.  Median    Mean 3rd Qu.    Max.
+  # 9.00   10.00   10.00   12.11   10.00 1492.00
+  #Abstracts_tail[which(nchar(Abstracts_tail) > nchar("Copyright "))]
+  #only one potential critical pattern
+  #data$Abstract[grep("Limited, Australia (CAL), etc., have been used to generate emission figure", data$Abstract, fixed = T)]
+  #replace and rereplace critical pattern
+  replacement_pattern = "thisisareplacementpattern"
+  critical_pattern = c("Copyright Agency Limited", "Copyright Licensing Agency")
+  replace_critical_pattern = paste0(replacement_pattern, c(" Agency Limited", " Licensing Agency"))
+  data[,  Abstract:= stri_replace_all_fixed(Abstract, critical_pattern, replace_critical_pattern, vectorize_all = F)]
+
+  #remove copyright pattern
+  #length(data$Abstract[grep("Copyright.*$", data$Abstract)])
+  #1053
+  data[,  Abstract:= gsub("Copyright.*$", "", Abstract)]
+  #rereplace
+  data[,  Abstract:= gsub(replacement_pattern, "Copyright", Abstract, fixed = T)]
+  #length(data$Abstract[grep("Copyright.*$", data$Abstract)])
+  #[1] 1
+
+  # 4.5 publisher names #########################################
+  # which Abstracts still have publisher names at tail
+  publishers = data[, Publisher]
+  publishers = unique(publishers[ !is.na(publishers) & publishers != ""])
+  publishers = publishers[grep(" ", publishers)]
+  #max(nchar(publishers))
+
+  #Abstracts_tails = gsub("(.*)(.{120}$)", "\\2", Abstracts, perl = T)
+  #Abstracts_tails[sample(1:length(Abstracts_tails), 50)]
+  #Abstracts_tails_w_publishers = stringi::stri_detect_regex(Abstracts_tails, paste(publishers, collapse = "|"))
+  #Abstracts_tails[Abstracts_tails_w_publishers]
+
+  #additional patterns for potential removal from previous check
+  #;copy \\d{4}
+  #Published by
+  #? IWA Publishing 2014."
+
+  #directly replace one of them
+  #data[grep(paste0(copyrightsymbol, ".{1,200}$"), Abstract)]
+  data[,  Abstract:= gsub(copyrightsymbol%s+%" IWA Publishing 2014.", "", Abstract, fixed = T)]
+
+  #check for the other one
+  #data[grep("copy;.{1,300}$", Abstract, perl = T)]
+  #can be removed
+  data[,  Abstract:= gsub("copy;.{1,300}$", "", Abstract, perl = T)]
+
+  #check additional pattern
+  #data[grep("Published by", Abstract , perl = T)]
+  #remove the part that makes sense to be removed
+  data[,  Abstract:= gsub("Published by Elsevier Science Ltd.", "", Abstract, fixed = T)]
+
+  #check what is between the last two dots
+  #Abstracts_tail_last_dots = gsub("(^.*)(\\.[^\\.]+\\..{0,10}$)", "\\2", data$Abstract, perl =T)
+  #seems like above search pattern that not work correctly...
+  #Abstracts_tails_w_publishers = stringi::stri_detect_regex(Abstracts_tail_last_dots, paste(publishers, collapse = "|"))
+  #Abstracts_tail_last_dots[Abstracts_tails_w_publishers] #looks like there are no tailing publishers anymore
+  #remove patterns
+  patterns = c("The Research Council of Norway and the Norwegian State Housing Bank are financially supporting the project."
+                ,"American Society of Agricultural and Biological Engineers"
+                ,"co-sponsored by Japan Institute of Energy and Catalysis Society of Japan"
+                ,"ASTM International Committee E60 on Sustainability is a significant contributor of technically sound, market-relevant standards addressing the fields of sustainability and sustainable development"
+
+  )
+
+  data[,  Abstract:= stri_replace_all_fixed(Abstract, patterns, rep("", length(patterns)), vectorize_all = FALSE)]
+
+  # 4.6 affiliation names and again some publisher names #########################################
+  #check which Abstracts contain longer publisher or affiliation names
+  affiliation_names = data[, Affiliations]
+  aff = strsplit(affiliation_names, ",")
+  aff = unlist(lapply(aff, `[`, 1))
+  pub_aff = c(publishers, aff)
+  Encoding(pub_aff) = "UTF-8"
+  pub_aff = pub_aff[ !is.na(pub_aff) & pub_aff != ""]
+  pub_aff = unique(pub_aff)
+
+  #min(stri_count_fixed(pub_aff, " "))
+
+  #pub_aff[ stri_count_fixed(pub_aff, " ") == 0]
+  #for unigrams it is assumed that they can be replaced if they
+  #include at least two uppercase letters, hence, if its a special name
+  #and if they are sourrounded by either brackets or spaces or space and dot/comma/semicolon so that they are not replace within normal words accidentally
+  pub_aff_unigrams = pub_aff[ stri_count_fixed(pub_aff, " ") == 0]
+  pub_aff_unigrams = pub_aff_unigrams[grep("^.*[A-Z].*[A-Z].*$", pub_aff_unigrams)]
+  pub_aff_unigrams = pub_aff_unigrams[order(nchar(pub_aff_unigrams), decreasing = TRUE)]
+
+  #replace unigram pub_aff
+  data[,  Abstract := gsub(paste0("(\\s|\\()(", paste(pub_aff_unigrams, collapse = "|"), ")(\\s|\\)|\\.|,|;)")
+                           , " "
+                           , Abstract
+                           , perl = T)
+       ]
+
+  #quick manual screening looks fine
+  #data[grep("   ", Abstract)]
+
+  #check bigrams
+  pub_aff_bigrams = pub_aff[ stri_count_fixed(pub_aff, " ") == 1]
+  #limit to proper names
+  pub_aff_bigrams = stri_extract_all_regex(pub_aff_bigrams, "^[A-Z][^\\s]+\\s[A-Z].+$", omit_no_match = TRUE, simplify = TRUE )
+  pub_aff_bigrams = pub_aff_bigrams[ pub_aff_bigrams != ""]
+  pub_aff_bigrams = pub_aff_bigrams[order(nchar(pub_aff_bigrams))]
+
+  #check which patterns to remove from bigrams
+  #https://stackoverflow.com/questions/116819/regular-expression-to-exclude-set-of-keywords
+  #pub_aff_bigrams[grep("^(?:(?!University|Department|Institute|College|TU|Laboratory).)*$", pub_aff_bigrams, perl = T)]
+  #terms include, e.g., "Human Ecology", "Management School", "Environmental Studies", etc.
+  #it is assumed that with the terms with the uppercase letters are used in the text only
+  #as true uppercasse letters, one would usually not use, e.g., the term "Urban Studies" as propoer name
+  #to name the field of "urban studies" within an abstract
+  #check this:
+  #Abstracts[grep("Environmental Studies", Abstracts)] #assumption is acceptable
+  data[,  Abstract := gsub(paste0(pub_aff_bigrams, collapse = "|")
+                           , " "
+                           , Abstract
+                           , fixed = T)
+       ]
+
+
+  #check trigrams
+  #pub_aff_trigrams = pub_aff[ stri_count_fixed(pub_aff, " ") == 2]
+  #pub_aff_trigrams[grep("^(?:(?!University|Department|Faculty|Institute|College|School|TU|Inst.|Centre|Center|Foundation|Division|Laboratory).)*$"
+  #                      , pub_aff_trigrams, perl = T)]
+  #seems reasonable to delete all that
+  #going further all grams with n>2 may be deleted
+  pub_aff_2plusgrams = pub_aff[ stri_count_fixed(pub_aff, " ") >= 2] %>%
+    .[ order(stri_count_fixed(., " "), decreasing = T)] %>% #order by number spaces
+    split(., stri_count_fixed(., " ")) %>%
+    .[length(.):1]  %>% #order has to be reversed since list is ordered from low to high numbers
+    lapply(., function(x) {x[order(nchar(x), decreasing = T)]}) %>%  #order by nchar
+    unlist(use.names = F)
+
+  data[,  Abstract := gsub(paste0(pub_aff_2plusgrams, collapse = "|")
+                           , " "
+                           , Abstract
+                           , fixed = T)
+       ]
+  
+  
+  # interim_check:long abstracts -----------------------------------------
+  #check abstract length after initial cleaning
+  hist_nchar_abstracts_nchar_max_5k_cleaned = ggplot(data = data[ ncharAbstract <= 5000  , c("ncharAbstract", "id")], aes(data[ ncharAbstract <= 5000  , ncharAbstract])) +
+    geom_histogram(bins = 50) +
+    ylab("Number of characters in abstracts") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(size=10
+                                 , angle=90)) +
+    scale_x_continuous(breaks=seq(min(data$ncharAbstract, na.rm = TRUE)
+                                  , max(data$ncharAbstract, na.rm = TRUE), 100))
+  
+  hist_nchar_abstracts_cleaned =ggplot(data = data[ , c("ncharAbstract", "id")], aes(data[  , ncharAbstract])) +
+    geom_histogram(bins = 50) +
+    ylab("Number of characters in abstracts") +
+    theme_bw() +
+    theme(
+      axis.text.x = element_text(size=10
+                                 , angle=90)) +
+    scale_x_continuous(breaks=seq(min(data$ncharAbstract, na.rm = TRUE)
+                                  , max(data$ncharAbstract, na.rm = TRUE), 100))
+  
+  #compare plots
+  hist_nchar_abstracts_nchar_max_5k_cleaned
+  hist_nchar_abstracts_nchar_max_5k_uncleaned
+  
+  hist_nchar_abstracts_cleaned
+  hist_nchar_abstracts_uncleaned
+  
+  #check content of remaining long abstracts
+  #nrow(data[ nchar(Abstract) >= 5000 , ])
+  #[1] 63
+  data[ nchar(Abstract) >= 5000 , Abstract]
+  #looks like extended abstracts, seems accetpable to keep them
+  
+} # interim_check:long_abstracts
+  
+```
+
+
+### Replace Acronyms by Words
+```{R clean-acronyms, message=FALSE, warning=FALSE, eval = FALSE}
+  # 5_replace_acronyms_by_words -----------------------------------------------
+  #extract abbreviations and acronyms to avoid that they are bound
+  #to the phrase that they stand for in the collocation dectection step
+  start_acronym_replacement = proc.time()
+  #the following takes about 1 hour...
+  data[, Abstract:= replace_acronyms_by_words(Abstract)]
+  elapsed_time_acronym_replacement = proc.time()-start_acronym_replacement
+  writeLines(as.character(elapsed_time_acronym_replacement), paste0(dirdat, "acronym_replacement_duration.txt"))
+```
+
+### Uncontract Negations
+```{R clean-negations, message=FALSE, warning=FALSE, eval = FALSE}
+  # 6_uncontract_negations -----------------------------------------------
+  data[, Abstract := uncontract_negations(Abstract)]
+```
+
+### Non-English Phrases
+```{R clean-nonenglish, message=FALSE, warning=FALSE, eval = FALSE}
+  # 7_replace_non_English_phrases  -----------------------------------------------
+  #check for additional phrases to be removed  in german, french, spanish
+  data[grep(" durch | als | entwicklung", Abstract, ignore.case = T, perl = T),.(Abstract,id)]
+  data[grep(" es ", Abstract, fixed = T),.(Abstract,id)]
+  data[grep(" les | der | die | das | le | el ", Abstract, ignore.case = T, perl = T),.(Abstract,id)]
+  remove_pattern = c(
+    "Werden die internationalen Vereinbarungen zum Ersatz fossiler Energietr.ger durch erneuerbare von der Politik.*$"
+    ,"Oberfl.chennahe Geothermie leistet mittlerweile einen wesentlichen Beitrag zur Grundlastversorgung mit W.rmeenergie.*$"
+    ,"R.sum.: Les pr.occupations li.es au d.veloppement durable ont influ.*$"
+    ,"Les pays en d.veloppement ont maintenant la possibilit. de choisir entre un syst.me bas. sur le p.trole ou la mise en valeur des.*$"
+    ,"La justice environnementale dans le monde des organisations environnementalistes non gouvernementales de Toront.*$"
+  )
+  
+  data[grep(paste(remove_pattern, collapse = "|")
+            , Abstract
+            , ignore.case = T, perl = T)
+       ,.(Abstract = gsub(paste0("(^.*)(",paste(remove_pattern, collapse = "|"), ")")
+                          ,"\\2"
+                          ,Abstract, perl = T), id)]
+  
+  #pattern works, remove it, use capturing group \\1 instead of \\2
+  data[grep(paste(remove_pattern, collapse = "|")
+            , Abstract
+            , ignore.case = T, perl = T)
+       , Abstract := gsub(paste0("(^.*)(",paste(remove_pattern, collapse = "|"), ")")
+                          ,"\\1"
+                          ,Abstract, perl = T)]
+  
+  
+  #check for non ASCII characters
+  non_ascii = data[grep("[^[:ascii:]]", Abstract, perl=TRUE), .(id, Abstract)]
+  non_ascii = non_ascii[, Abstract:= gsub("[[:ascii:]]", "", Abstract, perl=TRUE)]
+  unique(non_ascii[,Abstract])
+  summary(nchar(unique(non_ascii[,Abstract])))
+  #Conclusion
+  #the non ascii characters are individual symbols or characters within names,etc.
+  #there are no longer sentences in non-ascii
+  #the abstracts do not seem to inlcude any non-english expressions anymore
+  
+  rm(non_ascii, remove_pattern, duplicated_title_ids)
+```
+
+### Terms
+```{R clean-terms, message=FALSE, warning=FALSE, eval = FALSE}
+  # 8_manual_disambiguation_deletion_of_known_terms ------------------------------------------------------
+  data[, Abstract:= gsub("chernobil", "chernobyl", Abstract, ignore.case = T)]
+  # replace typical abstract headings / wording
+  # some wording is known, other phrases were gathered by inspecting the data, e.g., via
+  # data[grep("^\\w+, ", Abstract, perl = T),.(substr(Abstract, 1,50),id)]
+  # head(data[grep("^\\w+, ", Abstract, perl = T),.(substr(Abstract, 1,50),id)],100)
+  # tail(data[grep("^\\w+, ", Abstract, perl = T),.(substr(Abstract, 1,50),id)],100)
+  data[ , Abstract:= gsub("Figure not available|see fulltext|Background:|Results:|Methods:|Conclusions:|Conclusion:|Abstract:|Aim:|^Abstract|Main conclusions:|Goal, Scope and Background|Background, aim, and scope|Background, aim and scope|Background, Aim and Scope|Background, aims and scope|Background, Aims and scop"
+                          ," ", Abstract, perl = T)]
+```
+
+n_docs_intially_cleaned = nrow(data)
+nrow(data)
+31567
+
+## Part-of-Speech Tagging
+### Perform POS Tagging
+```{R pos, message=FALSE, warning=FALSE, eval = FALSE}
+  # 9_POS_tagging_with_save ------------------------------------------------
+  time_before_pos_tagging_p = proc.time()
+  docs_ids_pos_tagged = treetag_parallel(docs = data$Abstract, ids = data$id, ncores = 4, chunk_size = 1000)
+  time_for_pos_tagging_treetagger_p = proc.time() - time_before_pos_tagging_p
+  time_for_pos_tagging_treetagger_p
+  #  User      System verstrichen
+  # 15.30        3.56     1249.43
+  nrow(data)
+  # [1] 31575
+  sum(grepl("STARTOFDOCMARKER", docs_ids_pos_tagged$token)) == nrow(data)
+  # TRUE
+  #storing temporary ids is important for mapping ids of pos tagged text to the original data.table with all information
+  #at a later point in the code
+  ids_temp = data.table(id = unique(docs_ids_pos_tagged$doc_id))
+  identical(ids_temp[order(id), id], data[order(id), id])
+  # TRUE
+  # Conclusion: the use of the marker phrase during chunking docs in parallel processing worked
+  #remove marker
+  docs_ids_pos_tagged = docs_ids_pos_tagged[!(token %in% "STARTOFDOCMARKER"), ]
+  # save image =================================================
+  setwd("C:/Science/Publication/3_sustainable_energy/data/")
+  save.image(file = "after_pos_tagging.RData")
+```
+
+load(paste0(dirdat, "after_pos_tagging.RData"))
+
+### Pre-process POSs
+```{R pos-preprocess, message=FALSE, warning=FALSE, eval = FALSE}
+  # 10_initial_processing_of_POSs ---------------------------------------------------
+  # handle unkown lemmata and basic formatting  =================================================
+  #use original token  as lemma if lemma is not identified
+  #correct plural s that has not been removed from tokens with unknown lemma
+  #this can be the case, e.g., for "biofuels" if in comma separated list
+  #from some words, e.g., biogas or analysis, the s is falsely removed
+  #however, these is the minority of words with unknown lemma
+  #final results show that e.g. biogas and bioga are always grouped into one topic, so the error made here
+  #seems to be acceptable for increasing the overall accuracy for the majority o cases
+  docs_ids_pos_tagged[lemma == "<unknown>" &  tag == "NNS" & token %like% ".*as$|.*is$", ]
+  # 2116 rows
+  docs_ids_pos_tagged[lemma == "<unknown>" &  tag == "NNS" & token %like% ".*s$", ]
+  # 16724 rows
+  docs_ids_pos_tagged[lemma == "<unknown>" & tag == "NNS", lemma:= gsub("(?<=.)s$", "", token, perl = T)]
+  docs_ids_pos_tagged[lemma == "<unknown>", lemma:= token]
+  
+  # deal with hyphens  =================================================
+  #specification of ign.comp = "-" in koRpus::tokenize seems to be ignored by treetag() (in the forms I have tried)
+  #therefore split up hyphenated words (will later be bound in collocations if statistically relevant)
+  #create token id to avoid removing duplicates when grouping over all columns
+  docs_ids_pos_tagged[, token_id:= 1:nrow(docs_ids_pos_tagged) ]
+  #mark lemma of words with hyphen
+  docs_ids_pos_tagged[ grep("-", token, fixed = T), hyphenated:= TRUE]
+  docs_ids_pos_tagged = docs_ids_pos_tagged[, strsplit(as.character(lemma), "-", fixed=TRUE), by = names(docs_ids_pos_tagged)][
+    ,lemma := NULL][
+      , setnames(.SD, "V1", "lemma")]
+  # remove empty entries  =================================================
+  docs_ids_pos_tagged = docs_ids_pos_tagged[ lemma != "", ]
+```
+
+### Sub-select POSs
+```{R pos-select, message=FALSE, warning=FALSE, eval = FALSE}
+  # 11_sub-selection of POSs/wclasses (also for CC model) ---------------------------------------------------
+  # list of all wclasses in data to be pruned
+  wclass_keep = unique(docs_ids_pos_tagged$wclass)
+  # [1] "fullstop"      "noun"          "verb"          "adjective"
+  # [5] "preposition"   "determiner"    "punctuation"   "adverb"
+  # [9] "pronoun"       "number"        "modal"         "conjunction"
+  # [13] "comma"         "to"            "name"          "predeterminer"
+  # [17] "existential"   "listmarker"    "symbol"        "foreign"
+  # [21] "particle"      "possesive"     "interjection"
+  wclass_rm = c("fullstop", "preposition", "determiner", "punctuation", "pronoun", "number", "modal", "conjunction",
+                "comma", "to", "predeterminer", "existential", "listmarker", "symbol", "foreign", "particle", "possesive"
+                ,"interjection")
+  wclass_keep = setdiff(wclass_keep, wclass_rm)
+  #[1] "noun"      "verb"      "adjective" "adverb"    "name"
+  #check for individual lemma to be kept
+  lemma_check = unique(docs_ids_pos_tagged[wclass %in% c("existential", "particle", "determiner", "predeterminer", "preposition"
+                                                         ,"modal", "foreign", "to"),lemma ])
+  lemma_check[order(lemma_check)]
+  #keep negations and some specific prepositions
+  lemma_force_keep = tolower(c("no", "not", "none", "neither", "nor", "offshore", "inland", "downstream"))
+  #mark lemmas/tokens to keep
+  docs_ids_pos_tagged[lemma %in% lemma_force_keep, keep := TRUE]
+  #prune by tag
+  docs_ids_pos_tagged = docs_ids_pos_tagged[wclass %in% wclass_keep | keep == TRUE, ]
+```
+
+### Clean POSs
+```{R pos-clean, message=FALSE, warning=FALSE, eval = FALSE}
+  # 12_final pre-processing and selection of tokens ---------------------------------------------------
+  # some basic string processing =================================================
+  # harmonize diacritics  #########################################
+  docs_ids_pos_tagged[ , lemma:= stri_process(lemma, rm_diacritics = TRUE)]
+  # mark / reformat (year) numbers to be kept  #########################################
+  docs_ids_pos_tagged[ grep("^\\d{4}$|^\\d{4}s$|^\\d{2}th$", token, perl = T)
+                       , lemma:= stri_replace_all_fixed(lemma
+                                                        ,as.character(0:9)
+                                                        ,paste0("_", c("zero", "one", "two", "three", "four", "five", "six", "seven","eight", "nine"))
+                                                        , vectorize_all = FALSE
+                       )]
+  # remove punctuation  #########################################
+  docs_ids_pos_tagged = docs_ids_pos_tagged[ !grepl("^[[:punct:]]+$", lemma), ]
+  
+  #check and reformat additional year numbers  #########################################
+  check_non_word_tokens = unique(docs_ids_pos_tagged[grep("[^A-Za-z]", lemma, perl = T), lemma])
+  check_non_word_tokens[grep("\\d{4}", check_non_word_tokens)]
+  
+  docs_ids_pos_tagged[ , lemma:= gsub("^November2011$", "November_two_zero_one_one", lemma, perl = T)]
+  docs_ids_pos_tagged[ , lemma:= gsub("EU2020", "EU_twentytwenty", lemma, perl = T)]
+  docs_ids_pos_tagged[ , lemma:= gsub("EU2030", "EU_twentythirty", lemma, perl = T)]
+  docs_ids_pos_tagged[ , lemma:= gsub("EU2050", "EU_twentyfifty", lemma, perl = T)]
+  
+  check_non_word_tokens = unique(docs_ids_pos_tagged[grep("[^A-Za-z]", lemma, perl = T), lemma])
+  unique(check_non_word_tokens[grep("_", check_non_word_tokens, fixed = T)]) # only the year numbers
+  #check / reformat some important chemical compounds to be kept  #########################################
+  check_non_word_tokens = unique(docs_ids_pos_tagged[grep("[^A-Za-z_]", lemma, perl = T), lemma])
+  check_non_word_tokens[grep(paste(c("CO2", "SO2", "CH4", "SOx", "NOx", "NH3", "NH4", "NO3", "NO2", "Li", "Ni", "Pb", "H2", "Nd"), collapse = "|")
+                             ,check_non_word_tokens
+                             ,perl = TRUE)]
+  #reformat CO2
+  docs_ids_pos_tagged[ , lemma:= gsub("C02emission", "CO_twoemission", lemma)]
+  
+  #check tokens that include numbers that are potentially not a chemical compound (usually on one digit number included)
+  check_non_word_tokens = unique(docs_ids_pos_tagged[grep("[^A-Za-z_]", lemma, perl = T), lemma])
+  check_non_word_tokens[grep("\\d{2}", check_non_word_tokens)]
+  check_non_word_tokens[grep("\\d{4}", check_non_word_tokens)]
+  
+  #prune tokens with more than one digit numbers
+  docs_ids_pos_tagged = docs_ids_pos_tagged[!(grepl("\\d{2}", lemma, perl = T)), ]
+  
+  check_non_word_tokens = unique(docs_ids_pos_tagged[grep("[^A-Za-z_]", lemma, perl = T), lemma])
+  unique(docs_ids_pos_tagged[ !grepl("[[:upper:]]", lemma) & grepl("\\d", lemma) , lemma])
+  
+  #remove lemmas with numbers not a chemical compound (marked via at least one uppercase letter)
+  docs_ids_pos_tagged = docs_ids_pos_tagged[ !( !grepl("[[:upper:]]", lemma) & grepl("\\d", lemma) ) , ]
+  
+  check_non_word_tokens = unique(docs_ids_pos_tagged[grep("[^A-Za-z_]", lemma, perl = T), lemma])
+  #no dashes in words
+  unique(docs_ids_pos_tagged[grep("_|\\-", lemma, perl = T), lemma])
+  # only the year numbers remain
+  
+  #ensure that some chemical compounds are kept by turning them to "words"
+  # docs_ids_pos_tagged[ grep(paste(c("CO2", "SO2", "CH4", "SOx", "SO4", "TiO2", "N2O", "NOx", "SiO2", "Cl2", "HF6", "NH3", "NH4", "NO3", "NO2", "Li", "Ni", "Pb", "H2", "Nd")
+  #                                 , collapse = "|"), lemma)
+  #                           , lemma:= stri_replace_all_fixed(lemma
+  #                                                            ,as.character(1:9)
+  #                                                            ,paste0("_", c("one", "two", "three", "four", "five", "six", "seven","eight", "nine"))
+  #                                                            , vectorize_all = FALSE
+  #                           )]
+  
+  unique(docs_ids_pos_tagged[grep("[^A-Za-z_]", lemma, perl = T), lemma])
+  #remaining tokens are largely chemical compounds if number is within token,
+  #tokens starting with anything but a number can be removed
+  docs_ids_pos_tagged[ , lemma:= stri_replace_all_fixed(lemma
+                                                        ,as.character(1:9)
+                                                        ,paste0("_", c("one", "two", "three", "four", "five", "six", "seven","eight", "nine"))
+                                                        , vectorize_all = FALSE
+  )]
+  check_non_word_tokens = unique(docs_ids_pos_tagged[grep("[^A-Za-z_]", lemma, perl = T), lemma])
+  #remove remaining tokens that inlcude numbers or punctuation
+  docs_ids_pos_tagged = docs_ids_pos_tagged[ !grepl("[^A-Za-z_]",lemma, perl = T) , ]
+  
+  unique(docs_ids_pos_tagged[ setdiff(grep("[[:punct:]]", lemma, perl = T), grep("_", lemma, perl = T))
+                              , lemma])
+  # character(0)
+  # tolower  =================================================
+  docs_ids_pos_tagged[, lemma:= tolower(lemma)]
+  # turn some of the remaining plural forms to singular  =================================================
+  unique(docs_ids_pos_tagged[ tag == "NN" & grepl("[^s]s$", lemma, perl = T), lemma ])
+  plurals = c("limitations", "products",  "pumps", "problems", "characteristic", "plants", "emissions",
+              "resources", "sources", "materials", "areas", "region", "stakeholders", "manufacturers", "contracts",
+              "audits", "effects", "minerals", "scenarios", "households", "limits","foods", "subsystems", "actors"
+              , "conflict")
+  docs_ids_pos_tagged[ lemma %in% plurals, lemma:= gsub("s$", "", lemma, perl = T)]
+  # remove stopwords  =================================================
+  Encoding(stopwords) = "UTF-8"
+  #apply similar preprocessing steps to stopwords as to data
+  stopwords = c(stopwords,
+                treetag_parallel(docs = stopwords, ids = 1:length(stopwords))[,lemma])
+  stopwords = unique(stopwords) %>%
+    .[ nchar(.) > 2] %>%
+    .[ . != ""] %>%
+    .[ !grepl("\\W", .)] %>%
+    tolower(.)
+  # prune stopwords
+  docs_ids_pos_tagged = docs_ids_pos_tagged[!(lemma %in% stopwords), ]
+  
+  # subset of POS for collocation model  =================================================
+  # wclass_keep currently in documents
+  # [1] "noun"      "verb"      "adjective" "adverb"    "name"
+  wclass_rm_cc = c("verb", "adverb")
+  wclass_keep_cc = setdiff(wclass_keep, wclass_rm_cc)
+  #[1] "noun" "adjective" "name"
+  #create subset for collocation model
+  docs_ids_pos_tagged_cc = docs_ids_pos_tagged[wclass %in% wclass_keep_cc | keep == TRUE,]
+  #force removal of plural s
+  docs_ids_pos_tagged_cc = docs_ids_pos_tagged_cc[ !(token == "s"), ]
+  
+  rm(list = ls(pattern = "check"))
+```
+
+### POSs to Lists of Tokens
+```{R pos-collapse, message=FALSE, warning=FALSE, eval = FALSE}
+  # 13_collapse_pos_tag_table_to_unique_token_lists ---------------------------------------------------
+  # collapse to token list  =================================================
+  docs_ids_pos_tagged = docs_ids_pos_tagged[, .(doc = list(lemma)), keyby = doc_id]
+  setnames(docs_ids_pos_tagged, "doc_id", "id")
+  docs_ids_pos_tagged = docs_ids_pos_tagged[ids_temp, on = "id"]
+  docs_ids_pos_tagged[is.na(doc), doc := NULL]
+  
+  # remove duplicates  =================================================
+  # check reamining duplicate docs and if duplication is due to cleaning or really a duplication
+  #get duplicates in pos tagged data (both duplicate and original are needed to check content in original data)
+  duplicated_idxs = which(duplicated(docs_ids_pos_tagged[, doc]))
+  duplicated_idxs_incl_dups = which(docs_ids_pos_tagged[, doc] %in% docs_ids_pos_tagged[duplicated_idxs, doc ])
+  docs_ids_dup_doc = docs_ids_pos_tagged[duplicated_idxs_incl_dups,]
+  
+  data_dups = data[id %in% docs_ids_dup_doc[, id], ]
+  #check if really duplicates
+  data_dups[order(Title), .(substr(Title, 1,100), id)]
+  data_dups[order(Abstract), .(substr(Abstract, 1,100), id)]
+  #the only non duplicate entry might be a repeated survey on photovoltaics, check content
+  data_dups[id %in% data_dups[ Title %like% "Photovoltaics literature survey", id], Abstract]
+  #these ids might even be removed completely (duplicate and original)
+  #the other duplicates may also be removed
+  duplicated_idxs = unique(c(duplicated_idxs
+                             ,data_dups[ Title %like% "Photovoltaics literature survey", id]))
+  #note that duplicated_idxs are not document ids, therefore, we need to retreive them again in the next call
+  docs_ids_pos_tagged = docs_ids_pos_tagged[ !(id %in% docs_ids_pos_tagged[duplicated_idxs, id]), ]
+  
+  # collapse subset for collocation model token list  =================================================
+  #remove duplicate identified above
+  docs_ids_pos_tagged_cc = docs_ids_pos_tagged_cc[ doc_id %in% docs_ids_pos_tagged$id , ]
+  
+  #collapse to tokenized form
+  ids_temp_cc = data.table(id = unique(docs_ids_pos_tagged_cc$doc_id))
+  docs_ids_pos_tagged_cc = docs_ids_pos_tagged_cc[, .(doc = list(lemma)), keyby = doc_id]
+  setnames(docs_ids_pos_tagged_cc, "doc_id", "id")
+  docs_ids_pos_tagged_cc = docs_ids_pos_tagged_cc[ids_temp_cc, on = "id"]
+  docs_ids_pos_tagged_cc[is.na(doc), doc := NULL]
+  
+  all(docs_ids_pos_tagged_cc$id ==  docs_ids_pos_tagged$id)
+  # TRUE
+  
+  rm(list = ls(pattern = "dup"))
+```
+nrow(docs_ids_pos_tagged)
+saveRDS(docs_ids_pos_tagged, paste0(dirdat, "docs_ids_pos_tagged_cleaned.rds"))
+saveRDS(docs_ids_pos_tagged_cc, paste0(dirdat, "docs_ids_pos_tagged_cc.rds"))
+
+# Publication Statistics
+```{R pub-stats, message=FALSE, warning=FALSE, eval = FALSE}
+  # 14_publication statistics of non duplicate docs ---------------------------------------------------
+  docs_per_year  = data[docs_ids_pos_tagged[,"id"], "Year", on = "id"][, .(docs_per_year = .N), by = "Year"]
+
+
+  colnames(docs_per_year) = tolower(colnames(docs_per_year))
+  setorder(docs_per_year, year)
+  docs_per_year[, docs_cumsum:= cumsum(docs_per_year)]
+  
+#plot(docs_per_year$year, log(docs_per_year$docs_cumsum))  
+  energy_articles = read.csv(paste0(dirdat, "Scopus-3007883-Analyze-Year_search_term_energy_all_articles_search_on080119_copy.csv"), sep = ",")
+ #  energy_articles = read.csv(paste0(dirdat, "Scopus-964676-Analyze-Year_energy_envi_eng_copy.csv"), sep = ",")
+  
+  
+setDT( energy_articles)
+energy_articles[, c("year", "ndocs") := tstrsplit(YEAR, ",", fixed=TRUE)]
+energy_articles[, YEAR:=NULL][, X:=NULL]
+energy_articles[, ndocs:= as.numeric(gsub("\\D","", ndocs))]
+setorder(energy_articles, year)
+energy_articles[, year:= as.numeric(year)]
+energy_articles = energy_articles[!(year %in% 2017:2019) ]
+energy_articles[, docs_cumsum:= cumsum(ndocs)]
+plot(energy_articles$year, log(energy_articles$docs_cumsum), type = "l")
+lines(docs_per_year$year, log(docs_per_year$docs_cumsum))
+
+
+
+
+  # initial investigation and subselection of data  =================================================
+  plot(docs_per_year[,  c("year","docs_cumsum")])
+  plot(docs_per_year[,  year], docs_per_year[,  log(docs_cumsum)])
+  plot(gradient_numeric(docs_per_year$year,docs_per_year$docs_cumsum))
+  lines(docs_per_year$year,docs_per_year$docs_per_year)
+  plot(log(gradient_numeric(docs_per_year$year,docs_per_year$docs_cumsum)))
+  # CONCLUSION
+  #exclude 2018 and also 2017 since incomplete
+  #(this Conclusion does not need to be based on data and seems logical anyway)
+  docs_per_year_complete =  docs_per_year[!(year %in% c(2017, 2018)),]
+  docs_per_year =  docs_per_year[!(year %in% c(1972:1989, 2017, 2018)),]
+  # find model for publication statistics =================================================
+  #there is a visible bend in the data; maybe combination of two models needed
+  #try split data at 2005
+  split_point = 2005
+  # linear model ################################################
+  lm_poly4_cut = lm(docs_cumsum ~ poly(year,9, raw = T), docs_per_year[year <= split_point , c("year","docs_cumsum")])
+  lm_poly8 = lm(docs_cumsum ~ poly(year,8, raw = T), docs_per_year[, c("year","docs_cumsum")])
+
+  #non-linear models ################################################
+  #basic exp model, use lm and log to estimate parameters for nls
+  #y ~ a * exp(b * x)
+  #estimate starting values
+  #y ~ exp(log(a) + b * x)
+  #log(y) ~ log(a) + b * x
+  lm_0 = lm(log(docs_cumsum) ~ year, docs_per_year[year >= split_point,  c("year","docs_cumsum")])
+  
+  lm_poly4_cut = nls(docs_cumsum ~  a * exp(b * year), docs_per_year[year <= split_point,  c("year","docs_cumsum")]
+                     , start = list(a = exp(coef(lm_0)[1]),  b = coef(lm_0)[2])
+                     ,control = list(maxiter = 1e7, minFactor = 1e-10))
+  
+  
+  nls_exp_cut = nls(docs_cumsum ~  a * exp(b * year), docs_per_year[year >= split_point,  c("year","docs_cumsum")]
+                    , start = list(a = exp(coef(lm_0)[1]),  b = coef(lm_0)[2])
+                    ,control = list(maxiter = 1e7, minFactor = 1e-10))
+  
+  nls_exp  = nls(docs_cumsum ~  a * exp(b * year), docs_per_year[,  c("year","docs_cumsum")]
+                 , start = list(a = exp(coef(lm_0)[1]),  b = coef(lm_0)[2])
+                 ,control = list(maxiter = 1e7, minFactor = 1e-10))
+
+  # anova( nls_exp, lm_poly4_cut, nls_exp_cut)
+  # anova(nls_exp, lm_poly4_cut,)
+  # anova( nls_exp,  nls_exp_cut)
+  # anova(  nls_exp,  nls_exp_cut)
+      
+  docs_per_year[, pred_lm_poly8:= predict(lm_poly8)]
+  docs_per_year[, pred_nls_exp:= predict(nls_exp)]
+  docs_per_year[, pred_lm_poly4_exp_cut:= c(predict(lm_poly4_cut)[-1],predict(nls_exp_cut))]
+
+  r_squared <- function (x, y) cor(x, y) ^ 2
+  rsq_models = list(
+  r_squared( docs_per_year$docs_cumsum,  docs_per_year$pred_lm_poly8)
+  ,r_squared( docs_per_year$docs_cumsum,  docs_per_year$pred_nls_exp)
+  ,r_squared( docs_per_year$docs_cumsum,  docs_per_year$pred_lm_poly4_exp_cut)
+  )
+  
+  # check absolute and relative errors ################################################
+  get_error_cols = c("pred_lm_poly8", "pred_nls_exp", "pred_lm_poly4_exp_cut")
+  docs_per_year[, (paste0(get_error_cols, "_err")):= lapply(.SD, function(x)  {
+    abs(docs_cumsum-x)
+  }), .SDcols = get_error_cols]
+  
+  docs_per_year[, (paste0(get_error_cols, "_err_rel")):= lapply(.SD, function(x) {
+    x/docs_cumsum
+  }), .SDcols= paste0(get_error_cols, "_err")]
+  
+  docs_per_year[, lapply(.SD, mean), .SDcols= grep("_err", names(docs_per_year))]
+  docs_per_year[year >= 1990, lapply(.SD, mean), .SDcols= grep("_err", names(docs_per_year))]
+  docs_per_year[year >= 1990, lapply(.SD, mean), .SDcols= grep("_err_rel", names(docs_per_year))]
+  
+  plot_cols = grep("_err_rel", names(docs_per_year))
+  for (i in 1:length(plot_cols)) {
+    if (i == 1) {
+      plot(docs_per_year$year, unlist(docs_per_year[, plot_cols[i], with = F]), ylim = c(0,.2))
+    } else {
+      points(docs_per_year$year, unlist(docs_per_year[, plot_cols[i], with = F]), col = i)
+      legend(x = 1975, y = 0.05*i, legend = names(docs_per_year)[plot_cols[i]], fill = i)
+    }
+  }
+  
+  plot(docs_per_year[, .(year, docs_cumsum)])
+  #lines(docs_per_year[, .(year, pred_lm_poly8)])
+  lines(docs_per_year[, .(year, pred_nls_exp)])
+  lines(docs_per_year[, .(year, pred_lm_poly4_exp_cut)], col = "red")
+  
+  #CONCLUSION
+  #the uncut exponential fit may be used - not perfect but with average relative error of 10% after 1990 the model seems acceptable
+  #for the desired purpose
+  
+  # use same model approach for docs per year data ################################################
+  lm_0 = lm(log(docs_per_year) ~ year, docs_per_year[, c(1,2)])
+  # fit exponential model
+  nls_per_year  = nls(docs_per_year ~  a * exp(b * year), docs_per_year[, c(1,2)]
+                      , start = list(a = exp(coef(lm_0)[1]),  b = coef(lm_0)[2])
+                      ,control = list(maxiter = 1e7, minFactor = 1e-10))
+  
+  docs_per_year[, per_year_fit:= predict(nls_per_year)]
+  
+  # plot quantitative publication data  =================================================
+  year_breaks = seq(min(docs_per_year_complete$year, na.rm = TRUE), max(docs_per_year_complete$year, na.rm = TRUE), 1)
+  year_labs = year_breaks
+  final_year = year_labs[length(year_labs)]
+  year_labs[ !(year_labs %in%  seq(min(docs_per_year_complete$year, na.rm = TRUE), max(docs_per_year_complete$year, na.rm = TRUE), 3))] = ""
+  year_labs[length(year_labs)] = final_year
+  
+  publications_cumsum =
+    ggplot(data = docs_per_year) +
+    xlab("Year") +
+    ylab("Cumulative number of journal articles") +
+    labs(title = "A") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size=10 , angle=45, hjust = 1), panel.grid = element_blank(), plot.title = element_text(face = "bold")) +
+    geom_point(aes(year, docs_cumsum), shape = 1, size = 1.5) +
+    geom_line(aes(year, pred_nls_exp)) +
+    
+    scale_x_continuous(breaks= year_breaks
+                       ,limits = c(1972, 2016)
+                       ,labels = year_labs
+    ) +
+    scale_y_continuous(breaks=seq(0, 2500+max(docs_per_year$docs_cumsum, na.rm = TRUE), 2500)
+                       , limits = c(0, 27000)) + # 2500+max(docs_per_year$docs_cumsum, na.rm = TRUE)
+    annotate("label", x = 1975, y = 17500,
+             label = paste0("Cumulative number of articles from 1990 to 2016:\n", max(docs_per_year$docs_cumsum)
+                            ,"\n\nFitted curve:\ncum_n = ", signif(coef(nls_exp)[1], d = 5), " * exp(", signif(coef(nls_exp)[2], d = 5)," * Year)"
+                            ,"\n\nMean relative error:\n"
+                            ,scales::percent(round(docs_per_year[year >= 1990, lapply(.SD, mean), .SDcols= grep("nls_exp_err_rel", names(docs_per_year))]
+                                   , d = 3)[[1]])
+             )
+             , size = 3.25 ,hjust = 0) +
+       geom_point(data = docs_per_year_complete[year < 1990, ], aes(year, docs_cumsum), shape = 1, size = 1.5)
+  
+  
+  
+    
+  publication_per_year =
+    ggplot(data = docs_per_year_complete) +
+    # geom_line(aes(Year, docs_per_year)) +
+    xlab("Year") +
+    ylab("Number of articles per year") +
+    labs(title = "B") +
+    theme_bw() +
+    geom_point(aes(year, docs_per_year), shape = 1, size = 1.5) +
+    #geom_line(aes(year, per_year_fit)) +
+    theme(axis.text.x = element_text(size=10 , angle=45, hjust = 1), panel.grid = element_blank(), plot.title = element_text(face = "bold")) +
+    scale_x_continuous(breaks= year_breaks
+                       ,limits = c(1972, 2016)
+                       ,labels = year_labs
+    ) +
+    scale_y_continuous(breaks=seq(0, 4500, 500)
+                       , limits = c(0, 4500)) +
+    annotate("label", x = 1975, y = 4000,
+             label = paste0("Number of articles per year in 2016:\n", max(docs_per_year$docs_per_year)
+             )
+             , size = 3.25 ,hjust = 0)
+
+  
+
+  year_breaks = seq(min(energy_articles$year, na.rm = TRUE), max(energy_articles$year, na.rm = TRUE), 1)
+  year_labs = year_breaks
+  final_year = year_labs[length(year_labs)]
+  #year_labs[ !(year_labs %in%  seq(min(docs_per_year_complete$year, na.rm = TRUE), max(docs_per_year_complete$year, na.rm = TRUE), 3))] = ""
+   year_labs[!grepl("0$", year_labs)] = ""
+  year_labs[length(year_labs)] = final_year
+  #  year_labs[1] = min(energy_articles$year, na.rm = T)
+    
+  publications_cumsum_log =
+    ggplot(data = energy_articles) +
+    xlab("Year") +
+    ylab("Common logarithm of cumulative number") +
+    labs(title = "C") +
+    theme_bw() +
+    theme(axis.text.x = element_text(size=10 , angle=45, hjust = 1), panel.grid = element_blank(), plot.title = element_text(face = "bold")) +
+       geom_line(aes(year, docs_cumsum, group = 1), linetype = 5) +
+     scale_y_continuous(trans='log10') +
+           geom_line(data = docs_per_year_complete, aes(year, docs_cumsum, group = 1)) +
+     
+    scale_x_continuous(breaks= year_breaks
+                       ,limits = c(min(energy_articles$year), max(energy_articles$year))
+                       ,labels = year_labs
+    ) +
+
+    annotate("label"
+             , x = 1860, y = 1e+05,
+             label = paste0("     Abstracts containing the term\nenergy\n\n"
+                            ,"     Abstracts containing the terms\nenergy and sustainab*")
+             , size = 3.25 ,hjust = 0) 
+  
+  
+  # annotation size / panel size not automatically adapted
+  # there the following plot is just for first inspection
+  pdf(paste0(dirres, "publication_statistics_annual_final1.pdf"))
+  gridExtra::grid.arrange( publications_cumsum ,  publication_per_year, publications_cumsum_log,  nrow = 3
+                           )
+  dev.off()
+
+
+  # the final plot is created semi manually, by creating two plots with nice aspect ratio etc.
+  # and combine them manually in , e.g., InkScape
+  svg(paste0(dirres, "publication_statistics_annual_final1.svg"))
+  gridExtra::grid.arrange( publications_cumsum ,  publication_per_year,  nrow = 2
+                          # , widths = unit(rep(0.6, 1), "npc")
+                          # , heights = unit(rep(0.3, 3), "npc")
+                           )
+  dev.off()
+  
+  
+  svg(paste0(dirres, "publication_statistics_annual_final2.svg"))
+  gridExtra::grid.arrange( publications_cumsum ,   publications_cumsum_log, nrow = 2
+                         #  , widths = unit(rep(0.6, 1), "npc")
+                         #  , heights = unit(rep(0.3, 3), "npc")
+                           )
+  dev.off()
+  
+  
+  
+  #combine plots
+  library(gtable)
+  
+  g1 <- ggplotGrob(publications_cumsum)
+  g2 <- ggplotGrob(publication_per_year) 
+  g3 <- ggplotGrob(publications_cumsum_log)
+g <- rbind(g1, g2, g3, size = "first")
+plot(g)
+ggsave(paste0(dirres, "publication_statistics_final.svg"), g,  device = "svg", width = 6, height = 10)
+
+g$widths <- unit.pmax(g1$widths, g2$widths, g3$widths)
+grid.newpage()
+grid.draw(g)
+  
+  
+  
+  save_plot = gridExtra::grid.arrange(publications_cumsum, publication_per_year,
+                          ncol = 1, nrow = 2)
+  
+  rm(list = ls(pattern = "year_breaks|year_labs|plot_cols|split_point|get_error_cols"))
+```
+
+# Model documents
+## Collocation Model
+```{R collocations, message=FALSE, warning=FALSE, eval = FALSE}
+  # 15_Collocation Model ---------------------------------------------------
+  #initial iterator
+  iterator_docs_cc = itoken(iterable = docs_ids_pos_tagged_cc$doc
+                            ,ids = docs_ids_pos_tagged_cc$id
+                            ,progressbar = FALSE
+                            ,chunks_number = 10
+  )
+  # 1st model - basic =================================================
+  # to get basic idea of collocations and stats for some specific collocations
+  cc_model1 = Collocations$new(collocation_count_min = 5
+                               ,pmi_min = 0
+                               ,gensim_min = 0
+                               ,lfmd_min = -Inf
+                               ,llr_min = 0
+                               , sep = "_"
+  )
+  cc_model1$fit(iterator_docs_cc, n_iter = 10)
+  
+  plot(1:nrow(cc_model1$collocation_stat), scale_normal(cc_model1$collocation_stat$pmi), type = "l")
+  lines(sort(scale_normal(cc_model1$collocation_stat$lfmd), decreasing = T), col = "red")
+  lines(sort(cc_model1$collocation_stat$llr, decreasing = T), color = "green")
+  
+  check1 = cc_model1$collocation_stat
+  check1[intersect(grep("^sustainable$", check1$prefix),
+                   grep("^energy$", check1$suffix)),]
+  
+  #        prefix suffix   n_i   n_j n_ij      pmi      lfmd   gensim      llr iter
+  # 1: sustainable energy 27871 89444 3407 1.992067 -17.48527 3.972226 4632.875    1
+  
+  #get a impression of collocation_stat
+  cc_model1_quantiles = sapply(c("pmi", "lfmd", "gensim", "llr"), function(x) {
+    quantile(cc_model1$collocation_stat[, get(x)])
+  }, simplify = F)
+  cc_model1_quantiles
+  # $pmi
+  # 0%          25%          50%          75%         100%
+  # 1.732409e-05 1.140600e+00 2.571767e+00 5.266269e+00 1.915103e+01
+  #
+  # $lfmd
+  # 0%       25%       50%       75%      100%
+  # -38.30200 -35.68372 -33.54708 -30.23263 -10.96493
+  #
+  # $gensim
+  # 0%          25%          50%          75%         100%
+  # 0.000000e+00 2.823472e-01 1.403829e+00 8.538597e+00 1.437402e+05
+  #
+  # $llr
+  # 0%          25%          50%          75%         100%
+  # 3.405148e-09 4.296449e+00 1.751583e+01 5.508212e+01 4.235262e+04
+  
+  hist(check1$pmi)
+  hist(check1$lfmd)
+  hist(check1$llr)
+  hist(check1$llr[ check1$llr < 200])
+  hist(check1$gensim)
+  hist(check1$gensim[ check1$gensim < 2])
+  hist(check1$gensim[ check1$gensim < .5])
+  #gensim does not seem to be a good quality measure here,
+  #too many terms at the lower end, too many ccs might be pruned
+  
+  check1[c(intersect(grep("sustain", check1$prefix),
+                     grep("^energy", check1$suffix)),
+           grep("sustainable_energy", check1$prefix),
+           grep("sustainable_energy", check1$suffix)),]
+  
+  tail(check1[c(intersect(grep("sustain", check1$prefix),
+                          grep("^energy", check1$suffix)),
+                grep("sustainable_energy", check1$prefix),
+                grep("sustainable_energy", check1$suffix)),], 90)
+  
+  #potential pruning options
+  #pmi > 1.97
+  #lfmd > -30
+  
+  head(check1[unique(c(grep("combi[a-z]+_heat", check1$prefix, perl = T),
+                       grep("heat$", check1$prefix),
+                       grep("heat_power", check1$prefix))),]
+       ,100)
+  #head would be included in above pruning limits for sustainab
+  
+  tail(check1[unique(c(grep("combi[a-z]+_heat", check1$prefix, perl = T),
+                       grep("heat$", check1$prefix),
+                       grep("heat_power", check1$prefix))),]
+       ,100)
+  # above pmi value would prune some bad collocations
+  #unfortunately also "heat network" contained in 17 docs
+  # above lfmd would prune "heat conductivity" contained in 7 docs
+  
+  check1[c(intersect(grep("long", check1$prefix),
+                     grep("term", check1$suffix)),
+           grep("long_term", check1$prefix)
+  ),]
+  # 2nd model - higher min count  =================================================
+  #try one more run with min count = 6 (5 was already ok)
+  #especially for "...sustain_energi..." there are too many verbs in the phrases
+  #therefore, increase min CC count to 10 and set pmi as low to only just capture "sustain_energi"
+  cc_model2 = Collocations$new(collocation_count_min = 8
+                               ,pmi_min = 0
+                               ,gensim_min = 0
+                               ,lfmd_min = -Inf
+                               ,llr_min = 0
+                               , sep = "_"
+  )
+  cc_model2$fit(iterator_docs_cc, n_iter = 6)
+  
+  check2 = cc_model2$collocation_stat
+  cc_model2_quantiles = sapply(c("pmi", "lfmd", "gensim", "llr"), function(x) {
+    quantile(cc_model2$collocation_stat[, get(x)])
+  }, simplify = F)
+  cc_model2_quantiles
+  
+  check2[intersect(grep("^sustainable$", check2$prefix),
+                   grep("^energy$", check2$suffix)),]
+  #         prefix suffix   n_i   n_j n_ij      pmi      lfmd  gensim      llr iter
+  # 1: sustainable energy 27871 89444 3407 1.978959 -17.47216 3.93283 4584.685    1
+  
+  check2[c(intersect(grep("sustainable", check2$prefix),
+                     grep("energy", check2$suffix)),
+           grep("sustainable_energy", check2$prefix),
+           grep("sustainable_energy", check2$suffix)),]
+  
+  
+  head(check2[c(intersect(grep("sustainable", check2$prefix),
+                          grep("energy", check2$suffix)),
+                grep("sustainable_energy", check2$prefix),
+                grep("sustainable_energy", check2$suffix)),], 50)
+  
+  #exclude terms by lfmd_min = -29  such as
+  #          prefix                                 suffix   n_i   n_j n_ij        pmi      lfmd
+  #sustainable_energy           development_environmental  1867   124    8  6.1934195 -29.83482
+  
+  
+  tail(check2[c(intersect(grep("sustainable", check2$prefix),
+                          grep("energy", check2$suffix)),
+                grep("sustainable_energy", check2$prefix),
+                grep("sustainable_energy", check2$suffix)),], 50)
+  
+  
+  head(check2[unique(c(grep("combi[a-z]+_heat", check2$prefix),
+                       grep("heat$", check2$prefix),
+                       grep("heat_power", check2$prefix))),]
+       , 90)
+  
+  
+  check2[unique(c(grep("fukushima|chernob", check2$prefix),
+                  grep("fukushima|chernob", check2$suffix)))
+         ,]
+  # prefix   suffix n_i  n_j n_ij       pmi      lfmd   gensim      llr iter
+  # 1: fukushima  daiichi  70    9    9 15.330564 -21.24928 4578.437 192.4842    1
+  # 2: fukushima disaster  70  216    8 10.575677 -26.34402    0.000 102.5482    1
+  # 3: fukushima  nuclear  70 2766   18  8.066904 -26.51294  148.973 170.5981    1
+  
+  
+  check2[intersect(grep("oil", check2$prefix),
+                   grep("cris", check2$suffix))
+         ,]
+  # prefix suffix  n_i n_j n_ij      pmi      lfmd  gensim      llr iter
+  # 1:    oil crisis 4961 804   38 4.780308 -27.64353 21.6947 180.5564    1
+  
+  #oil crisis and fukushima collocations will still be included when applying above limits
+  
+  head(check2[unique(c(grep("fossil", check2$prefix),
+                       grep("fossil", check2$suffix)))
+              ,], 50)
+  
+  # 3rd model - apply pmi / lfmd limits  =================================================
+  cc_model3 = Collocations$new(collocation_count_min = 8
+                               ,pmi_min = 1.978
+                               ,gensim_min = 0
+                               ,lfmd_min = -29
+                               ,llr_min = 0
+                               , sep = "_"
+  )
+  cc_model3$fit(iterator_docs_cc, n_iter = 8)
+  # INFO [2018-06-10 20:37:36] iteration 1 - found 8165 collocations
+  # INFO [2018-06-10 20:37:41] iteration 2 - found 10923 collocations
+  # INFO [2018-06-10 20:37:47] iteration 3 - found 11230 collocations
+  # INFO [2018-06-10 20:37:52] iteration 4 - found 11250 collocations
+  # INFO [2018-06-10 20:38:00] iteration 5 - found 11251 collocations
+  # INFO [2018-06-10 20:38:07] iteration 6 - converged
+  
+  check3 = cc_model3$collocation_stat
+  cc_model3_quantiles = sapply(c("pmi", "lfmd", "gensim", "llr"), function(x) {
+    quantile(cc_model3$collocation_stat[, get(x)])
+  }, simplify = F)
+  cc_model3_quantiles
+  # $pmi
+  # 0%       25%       50%       75%      100%
+  # 1.978959  5.520098  7.477006  9.577886 18.459847
+  #
+  # $lfmd
+  # 0%       25%       50%       75%      100%
+  # -28.99987 -27.89471 -26.34854 -23.96273 -10.95183
+  #
+  # $gensim
+  # 0%         25%         50%         75%        100%
+  # 0.00000    20.54828    57.97892   246.26995 77261.11607
+  #
+  # $llr
+  # 0%         25%         50%         75%        100%
+  # 67.07239   119.32505   170.77924   301.88331 42281.71015
+  
+  
+  check3[intersect(grep("^sustainable$", check3$prefix),
+                   grep("^energy$", check3$suffix)),]
+  # prefix suffix   n_i   n_j n_ij      pmi      lfmd  gensim      llr iter
+  # 1: sustainable energy 27871 89444 3407 1.978959 -17.47216 3.93283 4584.685    1
+  
+  check3[c(intersect(grep("sustainable", check3$prefix),
+                     grep("energy", check3$suffix)),
+           grep("sustainable_energy", check3$prefix),
+           grep("sustainable_energy", check3$suffix)),]
+  
+  
+  head(check3[c(grep("^fuel$", check3$suffix, perl = T)),], 50)
+  
+  head(
+    check3[c(grep("^power$|^energy$", check3$suffix, perl = T)),]
+    ,90)
+  
+  tail(
+    check3[c(grep("^power$|^energy$", check3$suffix, perl = T)),]
+    ,90)
+  
+  head(
+    check3[c(grep("solar_energi|solar$", check3$prefix, perl = T)),]
+    ,60)
+  
+  tail(
+    check3[c(grep("solar_energi|solar$", check3$prefix, perl = T)),]
+    ,60)
+  
+  head(check3[unique(c(grep("combi[a-z]+_heat", check3$prefix),
+                       grep("heat$", check3$prefix),
+                       grep("heat_power", check3$prefix))),]
+       , 90)
+  
+  
+  check3[unique(c(grep("fukushima|chernob", check3$prefix),
+                  grep("fukushima|chernob", check3$suffix)))
+         ,]
+  
+  # prefix   suffix n_i  n_j n_ij       pmi      lfmd   gensim      llr iter
+  # 1: fukushima  daiichi  70    9    9 15.330564 -21.24928 4578.437 192.4842    1
+  # 2: fukushima disaster  70  216    8 10.575677 -26.34402    0.000 102.5482    1
+  # 3: fukushima  nuclear  70 2766   18  8.066904 -26.51294  148.973 170.5981    1
+  
+  check3[intersect(grep("oil", check3$prefix),
+                   grep("cris", check3$suffix))
+         ,]
+  
+  # prefix suffix  n_i n_j n_ij      pmi      lfmd  gensim      llr iter
+  # 1:    oil crisis 4961 804   38 4.780308 -27.64353 21.6947 180.5564    1
+  
+  check3[unique(c(grep("fossil", check3$prefix),
+                  grep("fossil", check3$suffix)))
+         ,]
+  
+  #remove collocations such as the following by lfmd
+  #                    prefix             suffix   n_i   n_j n_ij       pmi      lfmd     gensim
+  #   sustainable_alternative        fossil_fuel   228  2547   14  5.874156 -28.93968  25.137396    87.40700    2
+  #                fossil_fuel   renewable_energy  2547  6941   46  2.662325 -28.71910   5.229563    93.11915    2
+  
+  # final pruning  ########################################################
+  cc_model3$prune(lfmd_min = -28.5)
+  
+  # save model  ########################################################
+  saveRDS(cc_model3, paste0(dirdat, "cc_model3.rds"))
+```
+
+## Vectorization
+### Create Vocabulary
+```{R create-Vocabulaty, message=FALSE, warning=FALSE, eval = FALSE}
+  # 16_Create / Inspect / Prune Vocabulary ---------------------------------------------------
+  # create iterator and vocabulary  =================================================
+  iterator_docs = itoken(iterable = docs_ids_pos_tagged$doc
+                         ,ids = docs_ids_pos_tagged$id
+                         ,progressbar = FALSE
+                         ,chunks_number = 10
+  )
+  # transform iterator by cc_model
+  iterator_docs_cc = cc_model3$transform(iterator_docs)
+  
+  vocabulary = create_vocabulary(iterator_docs_cc
+                                 #,c(1L, 1L)
+                                 #, sep_ngram ="_"
+                                 #,stopwords = stopwords
+  )
+  saveRDS(vocabulary, paste0(dirdat, "vocabulary_unpruned.rds"))
+  # inspect vocabulary  =================================================
+  nrow(vocabulary)
+  # [1] 66630
+  vocabulary_cc_subset = vocabulary[grep("_", vocabulary$term),]
+  
+  vocabulary_cc_subset[vocabulary_cc_subset$doc_count == 1,]
+  head(vocabulary_cc_subset[vocabulary_cc_subset$term_count == 1,],90)
+  
+  vocabulary_cc_subset_single_char = vocabulary[grep("^\\w_|_\\w$|_\\w_", vocabulary$term),]
+  
+  vocabulary_cc_subset_single_char[ vocabulary_cc_subset_single_char$doc_count == 1, "term" ]
+  tail(vocabulary_cc_subset_single_char, 100)
+  head(vocabulary_cc_subset_single_char, 100)
+  vocabulary_cc_subset_single_char$term
+  
+  vocabulary[vocabulary$doc_count == 1,]
+  vocabulary[grep("(^|_)heat_", vocabulary$term), ]
+  vocabulary[grep("fukushima|chernob", vocabulary$term), ]
+  vocabulary[grep("oil_cris", vocabulary$term), ]
+  head(vocabulary[grep("fossil", vocabulary$term),], 100)
+  vocabulary[grep("action_plan", vocabulary$term),]
+  vocabulary[grep("heat_", vocabulary$term), ]
+  
+  # prune vocabulary on basis of quantitative statistics =================================================
+  #collocations are not pruned on basis of low term count
+  #since threshold for collocation binding has already been set
+  #individual collocations may have count lower than threshold since during iteration
+  #some of them might be bound to even larger collocations leaving their tail "alone"
+  #hence only delete collocations with doc_count == 1, the longer collocation remains in the doc
+  #the actual term count may be -1 for individual documents
+  
+  #remove the collocations of doc count and term count == 1 ################################################
+  #see comment above, why this is acceptable and is not "real" pruning
+  vocabulary = vocabulary[ !(vocabulary$term_count == 1 & vocabulary$doc_count == 1), ]
+  
+  # pruning of basis on doc_count ###########################################
+  vocabulary[ !grepl("_", vocabulary$term) & vocabulary$doc_count < 4 ,]
+  tail(vocabulary[ !grepl("_", vocabulary$term) & vocabulary$doc_count < 4 ,],100)
+  
+  vocabulary[ grepl("_", vocabulary$term) & vocabulary$doc_count == 1 & vocabulary$term_count == 1 , "term"]
+  
+  #prune only non collocations by doc count > 2
+  #vocabulary[  !grepl("_", vocabulary$term) & (vocabulary$doc_count < 3)  , ]
+  vocabulary = vocabulary[ !( !grepl("_", vocabulary$term) & (vocabulary$doc_count < 3) ), ]
+  
+  nrow(vocabulary)
+  #[1] 29815
+  
+  # prune on basis of nchar ###############################################
+  vocabulary = vocabulary[ !( nchar(vocabulary$term) < 3 ), ]
+  nrow(vocabulary)
+  #[1]  29354
+  
+  # prune vocabulary on basis qualitative assessment =================================================
+  tail(vocabulary,100)
+  vocabulary[ (nrow(vocabulary)-199):(nrow(vocabulary)-100),]
+  #almost only the last 100 words include non informative ones, the rest seems ok
+  #following words are manually removed
+  #most of them are typical scientific words
+  #energy is removed but sustainability or sustainab not to check who uses the concept how
+  
+  # in a first step only remove typical scientific terms #############################################
+  # (second step covering thematic terms see further down)
+  rm_terms = c("demonstrate", "due", "year", "aim", "evaluate", "important", "require", "find", "case", "propose",
+               "make", "include", "present", "base", "result",
+               "increase",
+               "develop",
+               "not", #exclude the negation terms from words_keep (only reasonable for CC)
+               "no",
+               "none", "analyse", "aspect", "finally", "reveal", "emerge", "perspective", "finding",
+               "highlight",
+               "model", "methodology",
+               "design", "discuss", "lead", "application", "analysis",
+               "datum", "apply", "explore",
+               ",investigate",  "play", "relate", "face", "work", "key", "basis", "set",
+               "focus", "current", "conclude", "purpose",
+               "establish", "review", "carry",
+               "system", "tool", "determine", "main", "conduct", "significantly", "significant",
+               "show", "examine", "exist", "compare", "identify", "investigate",
+               "analyze", "term", "type", "address", "test", "result_show"
+               , "achieve",  "high", "low", "new", "aim",   "order", "improve", "year", "major", "number", "large"
+               ,"total", "form", "great",
+               "result_show"
+  )
+  
+  vocabulary = vocabulary[ !(vocabulary$term %in% rm_terms), ]
+  #inspect
+  tail(vocabulary,100)
+  vocabulary[ (nrow(vocabulary)-199):(nrow(vocabulary)-100),]
+  head(vocabulary,100)
+  tail(vocabulary, 30)
+  
+  #remove collocations with doc count < 2 that include numbers _one _two, etc.
+  vocabulary = vocabulary[ !(grepl(paste0("_", c("one", "two", "three", "four", "five", "six", "seven","eight", "nine"), collapse = "|")
+                                   ,vocabulary$term, perl = T) & vocabulary$doc_count == 1), ]
+  
+  # if it is of interset how representative collocations are for the corpus
+  vocabulary_cc_subset = vocabulary[grep("_", vocabulary$term),]
+  
+  #some information on vocabulary dimensions
+  highest_term_doc_prop = round(max(vocabulary$doc_count)/nrow(docs_ids_pos_tagged), d = 2)
+  highest_term_term_prop = round(max(vocabulary$term_count)/nrow(docs_ids_pos_tagged), d = 2)
+  plot(round(vocabulary$doc_count/nrow(docs_ids_pos_tagged), d =2))
+  
+  saveRDS(vocabulary, paste0(dirdat, "vocabulary.rds"))
+  # vocabulary = readRDS(paste0(dirdat, "vocabulary.rds"))
+  saveRDS(vocabulary_cc_subset, paste0(dirdat, "vocabulary_cc_subset.rds"))
+```
+
+### Create DTM
+```{R vectorization, eval= FALSE, message=FALSE, warning=TRUE}
+  # 18_Vectorization / document term matrix ---------------------------------------------------
+  vectorizer = vocab_vectorizer(vocabulary)
+  # basic dtm  =================================================
+  #basic dtm only needed to build tfidf based dtm / dtm for lda built in separate step
+  dtm = create_dtm(iterator_docs_cc, vectorizer, type = "dgCMatrix")
+  dim(dtm)
+  # [1] 31535 28885
+  any(Matrix::rowSums(dtm) == 0)
+  # [1] FALSE
+  any(Matrix::colSums(dtm) == 0)
+  # [1] FALSE
+  saveRDS(dtm, paste0(dirdat, "dtm_basic.rds"))
+  # tfidf based dtm / tfidf-wordloud  =================================================
+  tfidf.model = TfIdf$new(
+    smooth_idf = TRUE
+    ,norm = "l1" #norm = c("l1", "l2", "none"),
+    ,sublinear_tf = FALSE)
+  
+  dtm_tfidf = tfidf.model$fit_transform(dtm)
+
+  # dtm for LDA (rm additonal terms and limit time range) =================================================
+  #additional terms from wordclouds to be removed for LDA model
+  rm_terms_lda = c("sustainable" ,"energy", "process",  "production",
+                   "development", "technology", "research", "project",
+                   "sustainability")
+  # remove additional terms
+  dtm = dtm[, !(colnames(dtm) %in% rm_terms_lda)]
+  #remove documents from before 1990 and after 2016
+  dtm = dtm[ !(rownames(dtm) %in% data[Year < 1990 | (Year %in% c(2017, 2018)),id]), ]
+  dim(dtm)
+  # [1] 26533 28876
+  any(Matrix::rowSums(dtm) == 0)
+  # [1] FALSE
+  any(Matrix::colSums(dtm) == 0)
+  # [1] TRUE
+  
+  dtm = dtm[,  !(Matrix::colSums(dtm) == 0)]
+  dim(dtm)
+  # [1] 26533 28768
+  
+  saveRDS(dtm, paste0(dirdat, "dtm_1990_2016.rds"))
+
+  # since vectorization is a corner stone in the workflow, create comprehensive save here
+  # save.image(file = paste0(dirdat, "18_vectorization_completed.RData"))
+  # load(file = paste0(dirdat, "18_vectorization_completed.RData"))
+```
+
+## Latent Dirichlet Allocation
+```{R lda, eval= FALSE, message=FALSE, warning=TRUE}
+  # 19_perform LDA ---------------------------------------------------
+  # set LDA parameters =================================================
+  #alphaprior = 0.1 #50/ntopics #50/k
+ # doc_topic_prior = 0.1
+  # fit models  =================================================
+
+  # full time range  =================================================
+  start = proc.time()
+  warp_lda_vary_n_parallel( dtm = dtm
+                                , n_topics = seq(5, 1100, by = 5)
+                                , n_cores = 3
+                                , n_iter = 2000
+                               # , doc_topic_prior = 0.1#doc_topic_prior
+                                #, topic_word_prior = 0.1#
+                                , model_dir = gsub("models/", "wlda_1990_2016/", dirmod, fixed = T)
+  )
+  elapsed = proc.time()-start
+  #if running over night, the following might be reasonable
+  # shell("shutdown -s -t 0") #this is for windows
+  
+  # store filenames of modelfiles  =================================================
+  modelfiles = list.files(gsub("/models/", "/wlda_1990_2016/", dirmod)
+                          ,recursive = TRUE
+                          ,full.names = TRUE
+  )
+  #order by number of k
+  modelfiles = modelfiles[order(as.numeric(unlist(stri_extract_all_regex(modelfiles, "(?<=/k)\\d+(?=_)")))
+                                , decreasing = F)]
+```
+
+# Reference corpus
+## Get reference corpus
+```{R get-ref-corpus, eval= FALSE, message=FALSE, warning=TRUE}
+# Prepare Wikipedia reference corpus for measuring coherence ---------------------------------------------------
+   #TODO improve the code - better names, comments, etc.
+  # Identify relevant anchor wiki pages manually  =================================================
+  
+  #TODO document manual collection of pages...
+  # in Wikipedia lists of linked internal pages are often split by bullet or middledot
+  #
+  
+  # Load and format names of anchor pages =================================================
+  files = lapply(list.files(dirwiki, full.names = T, pattern = "txt$"), function(x) {
+    readLines(x)
+  })
+  
+  splitsymbols = sapply(c("\u00B7", "\u2022", "\u2027", "\u22C5"), function(x) {
+    stringi::stri_trans_general(x, "Hex-Any/Name")
+  }, USE.NAMES = F)
+  
+  files = sapply(files, function(f) {
+    f = unlist(strsplit(f, paste0("SPLITHERE|", paste0(splitsymbols, collapse = "|"))))
+    f = f[f != ""]
+    f = f[!grepl("\t", f, fixed = T)]
+    f = gsub("\\s{2,}", "", f, perl = T)
+    f = gsub("^\\s+|\\s+$", "", f, perl = T)
+    f = gsub("&", "and", f, fixed = T)
+    f = gsub(" ", "_", f, fixed = T)
+    f = f[!grepl("^#", f)]
+    return(f)
+  })
+  
+  page_names = unique(unlist(files))
+  page_names = page_names[page_names != ""]
+  
+  # Get and format page content  =================================================
+  start = proc.time()
+  content = textility::get_wiki_content(page_names)
+  end = proc.time()
+  end - start
+  # User        System     elapsed
+  # 719.67        4.12     1218.71
+  
+  #save.image(paste0(dirwiki, "page_content_from_portals.RData"))
+  #load(paste0(dirwiki, "page_content_from_portals.RData"))
+  
+  content = as.data.table(unlist(content))
+  setDT(content)
+  content[,id := 1:nrow(content)]
+  names(content) = c("doc", "id")
+  str(content)
+```
+
+## Prepare reference corpus
+### Perform POS Tagging
+```{R pos-ref-corpus, eval= FALSE, message=FALSE, warning=TRUE}
+  # POS tagging and intial formatting  =================================================
+  time_before_pos_tagging_p = proc.time()
+  wiki_pos_tagged = pos_tag_parallel(docs_ids = content, ncores = 3, chunk_size = 25)
+  # save(wiki_pos_tagged , file = paste0(dirwiki, "wiki_pos_tagged.rda"))
+  time_for_pos_tagging_treetagger_p = proc.time() - time_before_pos_tagging_p
+  time_for_pos_tagging_treetagger_p
+  
+```
+
+### Pre-process POSs
+```{R pos-ref-corpus-pre-process, eval= FALSE, message=FALSE, warning=TRUE}
+  # load(file = paste0(dirwiki, "wiki_pos_tagged.rda"))
+  
+  wiki_pos_tagged = wiki_pos_tagged[!(token %in% "SPLITDOCSHERE"), ]
+  
+  #use original token  as lemma if lemma is not identified
+  #correct plural s that has not been removed from tokens with unknown lemma
+  #this can be the case, e.g., for "biofuels" if in comma separated list
+  wiki_pos_tagged[lemma == "<unknown>" & tag == "NNS", lemma:= gsub("(?<=.)s$", "", token, perl = T)]
+  wiki_pos_tagged[lemma == "<unknown>", lemma:= token]
+  
+  wiki_pos_tagged[, token_id:= 1:nrow(wiki_pos_tagged) ]
+  #mark lemma of words with hyphen
+  wiki_pos_tagged[ grep("-", token, fixed = T), hyphenated:= TRUE]
+  wiki_pos_tagged = wiki_pos_tagged[, strsplit(as.character(lemma), "-", fixed=TRUE), by = names(wiki_pos_tagged)][,
+                                                                                                                   lemma := NULL][
+                                                                                                                     , setnames(.SD, "V1", "lemma")]
+  wiki_pos_tagged = wiki_pos_tagged[ lemma != "", ]
+```
+### Subselect POSs
+```{R pos-ref-corpus-subselect, eval= FALSE, message=FALSE, warning=TRUE}
+  # Subset of POSs  =================================================
+  #basic selection of tags/wclasses to be kept on basis of wclass
+  wclass_keep = unique(wiki_pos_tagged$wclass)
+  # [1] "fullstop"      "noun"          "verb"          "adjective"
+  # [5] "preposition"   "determiner"    "punctuation"   "adverb"
+  # [9] "pronoun"       "number"        "modal"         "conjunction"
+  # [13] "comma"         "to"            "name"          "predeterminer"
+  # [17] "existential"   "listmarker"    "symbol"        "foreign"
+  # [21] "particle"      "possesive"     "interjection"
+  wclass_rm = c("fullstop", "preposition", "determiner", "punctuation", "pronoun", "number", "modal", "conjunction",
+                "comma", "to", "predeterminer", "existential", "listmarker", "symbol"
+                #, "foreign"
+                , "particle", "possesive"
+                ,"interjection")
+  wclass_keep = setdiff(wclass_keep, wclass_rm)
+  #[1] "noun"      "verb"      "adjective" "adverb"    "name"
+  
+  #check for individual lemma to be kept
+  lemma_check = unique(wiki_pos_tagged[wclass %in% c("existential", "particle", "determiner", "predeterminer", "preposition"
+                                                     ,"modal", "foreign", "to"),lemma ])
+  lemma_check[order(lemma_check)]
+  #keep negations and some specific prepositions
+  lemma_force_keep = tolower(c("no", "not", "none", "neither", "nor", "offshore", "inland", "downstream", "south", "upstream", "karaoke", "Deutsche", "Gesellschaft"
+                               ,"downstream", "failing"))
+  #mark lemmas/tokens to keep
+  wiki_pos_tagged[lemma %in% lemma_force_keep, keep := TRUE]
+  #prune by tag
+  wiki_pos_tagged = wiki_pos_tagged[wclass %in% wclass_keep | keep == TRUE, ]
+```
+### Clean POSs
+```{R pos-ref-corpus-clean, eval= FALSE, message=FALSE, warning=TRUE}
+  # Process strings, lemmata  =================================================
+  # diacritics
+  wiki_pos_tagged[ , lemma:= stri_process(lemma, rm_diacritics = TRUE)]
+  #ensure that some year indications are kept
+  wiki_pos_tagged[ grep("^\\d{4}$|^\\d{4}s$|^\\d{2}th$", token, perl = T)
+                   , lemma:= stri_replace_all_fixed(lemma
+                                                    ,as.character(0:9)
+                                                    ,paste0("_", c("zero", "one", "two", "three", "four", "five", "six", "seven","eight", "nine"))
+                                                    , vectorize_all = FALSE
+                   )]
+  #first removal of single punctuation
+  wiki_pos_tagged = wiki_pos_tagged[ !grepl("^[[:punct:]]+$", lemma), ]
+  #check and replace additional year numbers
+  wiki_pos_tagged[ , lemma:= gsub("^November2011$", "November_two_zero_one_one", lemma, perl = T)]
+  wiki_pos_tagged[ , lemma:= gsub("EU2020", "EU_twentytwenty", lemma, perl = T)]
+  wiki_pos_tagged[ , lemma:= gsub("EU2030", "EU_twentythirty", lemma, perl = T)]
+  wiki_pos_tagged[ , lemma:= gsub("EU2050", "EU_twentyfifty", lemma, perl = T)]
+  # reformat CO2...
+  wiki_pos_tagged[ , lemma:= gsub("C02emission", "CO_twoemission", lemma)]
+  #ensure that some chemical compounds are kept by turning them to "words"
+  wiki_pos_tagged[ , lemma:= stri_replace_all_fixed(lemma
+                                                    ,as.character(1:9)
+                                                    ,paste0("_", c("one", "two", "three", "four", "five", "six", "seven","eight", "nine"))
+                                                    , vectorize_all = FALSE
+  )]
+  # tolower
+  wiki_pos_tagged[, lemma:= tolower(lemma)]
+  #correct some plural forms
+  unique(wiki_pos_tagged[ tag == "NN" & grepl("[^s]s$", lemma, perl = T), lemma ])
+  plurals = c("limitations", "products",  "pumps", "problems", "characteristic", "plants", "emissions",
+              "resources", "sources", "materials", "areas", "region", "stakeholders", "manufacturers", "contracts",
+              "audits", "effects", "minerals", "scenarios", "households", "limits","foods", "subsystems", "actors"
+              , "conflict")
+  wiki_pos_tagged[ lemma %in% plurals, lemma:= gsub("s$", "", lemma, perl = T)]
+  #remove stopwords
+  Encoding(stopwords) = "UTF-8"
+  stopwords = c(stopwords,
+                treetag_parallel(data.table(doc = stopwords, id = 1:length(stopwords)))[,lemma])
+  
+  stopwords = unique(stopwords)
+  stopwords = stopwords[ nchar(stopwords) > 2]
+  stopwords = stopwords[ stopwords != ""]
+  stopwords = stopwords[ !grepl("\\W", stopwords)]
+  stopwords = tolower(stopwords)
+  
+  wiki_pos_tagged = wiki_pos_tagged[!(lemma %in% stopwords), ]
+  
+  # save(wiki_pos_tagged, file = paste0(dirwiki, "wiki_pos_tagged_DT.rda"))
+  # load(file = paste0(dirwiki, "wiki_pos_tagged_DT.rda"))
+  # collapse pos tagged format to list of tokens  =================================================
+  docs_ids_wiki = wiki_pos_tagged[, .(doc = list(lemma)), keyby = doc_id]
+  setnames(docs_ids_wiki, "doc_id", "id")
+  #docs_ids_wiki = docs_ids_wiki[ids_temp, on = "id"] #order / ids not relevant here
+  docs_ids_wiki[is.na(doc), doc := NULL]
+} # Prepare Wikipedia reference corpus for measuring coherence
+```
+
+
+
+
+## Model reference corpus
+### Ref_vocab
+```{R create-ref-vocab, eval= FALSE, message=FALSE, warning=TRUE}
+{
+  # Create Wiki vocabulary ---------------------------------------------------
+  dtm = readRDS(paste0(dirdat, "dtm_lda.rds"))
+  n_docs = nrow(dtm)
+
+  tokens_ext = word_tokenizer(docs_ids_wiki$doc)
+  iterator_docs_wiki = itoken(iterable = tokens_ext
+                               #,ids = docs_ids_wiki$id
+                               ,progressbar = FALSE
+                               ,n_chunks = 10
+  )
+
+  #if sufficient RAM is available go parallel
+  #N_WORKERS = 2
+  #if(require(doParallel)) registerDoParallel(N_WORKERS)
+  # iterator_docs_wiki = itoken_parallel(iterable = docs_ids_wiki$doc
+  #                         #,ids = docs_ids_wiki$id
+  #                         ,progressbar = FALSE
+  #                         ,n_chunks = 10
+  # )
+
+  #check higher order collocations to set ngram order in external corpus
+  colnames(dtm)[which(stri_count_fixed(colnames(dtm), "_") > 4)]
+  v_wiki = create_vocabulary(iterator_docs_wiki , c(1L, 5L))
+  v_wiki = v_wiki[v_wiki$term %in% colnames(dtm),] #alternatively ... %in% vocabulary$term, before call: readRDS(paste0(dirdat, "vocabulary.rds"))
+} # Create Wiki vocabulary
+```
+
+
+### TCM
+```{R create-ref-tcm, eval= FALSE, message=FALSE, warning=TRUE}
+# Create Wiki vocabulary ---------------------------------------------------
+  dtm = readRDS(paste0(dirdat, "dtm_lda.rds"))
+  tokens_ext = word_tokenizer(docs_ids_wiki$doc)
+  #check higher order collocations to set ngram order in external corpus
+  colnames(dtm)[which(stri_count_fixed(colnames(dtm), "_") > 4)]
+  # order of 5 seems reasonable
+
+# Create internal and external reference tcms with different window sizes ---------------------------------------------------
+create_reference_tcm( dtm
+                     , tokens_ext
+                     , ngram_order = 5
+                     , dir_save = dirdat)
+
+  # tcm_int = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_int.rds"))
+  # tcm_wiki_5 = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_5.rds"))
+  # tcm_wiki_10 = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_10.rds"))
+  # tcm_wiki_110 = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_110.rds"))
+  
+  # the following code has been transferred to a wrapper fucntion in textility
+  # until this update of textility is finished the following more verbose code will be kept
+  {
+  # Create internal and external reference tcms with different window sizes ---------------------------------------------------
+  vectorizer_wiki = vocab_vectorizer(v_wiki)
+
+  # External tcms  =================================================
+  window_size = 5
+  tcm_wiki_5 = create_tcm(iterator_docs_wiki, vectorizer_wiki, skip_grams_window = window_size
+                          , skip_grams_window_context = "symmetric"
+                          ,weights = rep(1, window_size)
+                          ,binary_cooccurence = TRUE
+  )
+  format(object.size(tcm_wiki_5), units = "Mb")
+
+  window_size = 10
+  tcm_wiki_10 = create_tcm(iterator_docs_wiki, vectorizer_wiki, skip_grams_window = window_size
+                           , skip_grams_window_context = "symmetric"
+                           ,weights = rep(1, window_size)
+                           ,binary_cooccurence = TRUE
+  )
+
+  window_size = 110
+  tcm_wiki_110 = create_tcm(iterator_docs_wiki, vectorizer_wiki, skip_grams_window = window_size
+                            , skip_grams_window_context = "symmetric"
+                            ,weights = rep(1, window_size)
+                            ,binary_cooccurence = TRUE
+  )
+
+  diag(tcm_wiki_5) = attributes(tcm_wiki_5)$word_count
+  diag(tcm_wiki_10) = attributes(tcm_wiki_10)$word_count
+  diag(tcm_wiki_110) = attributes(tcm_wiki_110)$word_count
+
+  # Internal tcm  =================================================
+  tcm_int = Matrix::crossprod(sign(dtm))
+  #format(object.size(tcm_int), units = "Mb")
+
+  # reduce tcm to terms that are actually in the corpus under investigation to spare memory  =================================================
+  # some checks first to be sure tcms are fine
+  all(colnames(tcm_wiki_5) == rownames(tcm_wiki_5))
+  all(colnames(tcm_wiki_10) == rownames(tcm_wiki_10))
+  all(colnames(tcm_wiki_110) == rownames(tcm_wiki_110))
+  all(which(colnames(tcm_wiki_5) %in% colnames(dtm)) == which(rownames(tcm_wiki_5) %in% colnames(dtm)))
+
+  format(object.size(tcm_wiki_5), units = "Mb")
+  # [1] "18.9 Mb"
+  dtm_subset = which(colnames(tcm_wiki_5) %in% colnames(dtm))
+  tcm_wiki_5 = tcm_wiki_5[dtm_subset, dtm_subset]
+  format(object.size(tcm_wiki_5), units = "Mb")
+  # [1] "18.8 Mb"
+
+  format(object.size(tcm_wiki_10), units = "Mb")
+  # [1] "34.1 Mb"
+  dtm_subset = which(colnames(tcm_wiki_10) %in% colnames(dtm))
+  tcm_wiki_10 = tcm_wiki_10[dtm_subset, dtm_subset]
+  format(object.size(tcm_wiki_10), units = "Mb")
+  # [1] "34 Mb"
+
+  dtm_subset = which(colnames(tcm_wiki_110) %in% colnames(dtm))
+  tcm_wiki_110 = tcm_wiki_110[dtm_subset, dtm_subset]
+
+  # NOTE on format, no data in lower triangle  =================================================
+  #matrices only have entries in the lower triangle, remember this for some of the metrics!!
+  tcm_wiki_110[(ncol(tcm_wiki_110)-5):ncol(tcm_wiki_110),(ncol(tcm_wiki_110)-5):ncol(tcm_wiki_110)]
+
+  # Save reference tcms =================================================
+  saveRDS(tcm_int, paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_int.rds"))
+  saveRDS(tcm_wiki_5, paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_5.rds"))
+  saveRDS(tcm_wiki_10, paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_10.rds"))
+  saveRDS(tcm_wiki_110, paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_110.rds"))
+
+  n_skip_gram_windows = sum(sapply(tokens_ext, function(x) {length(x)}))
+  n_skip_gram_windows_5 = n_skip_gram_windows
+  n_skip_gram_windows_10 = n_skip_gram_windows
+  n_skip_gram_windows_110 = n_skip_gram_windows
+
+  saveRDS(n_skip_gram_windows_5, paste0("C:/Science/Publication/3_sustainable_energy/data/", "n_skip_gram_windows_5.rds"))
+  saveRDS(n_skip_gram_windows_10, paste0("C:/Science/Publication/3_sustainable_energy/data/", "n_skip_gram_windows_10.rds"))
+  saveRDS(n_skip_gram_windows_110, paste0("C:/Science/Publication/3_sustainable_energy/data/", "n_skip_gram_windows_110.rds"))
+  saveRDS(n_skip_gram_windows, paste0("C:/Science/Publication/3_sustainable_energy/data/", "n_skip_gram_windows.rds"))
+
+  # tcm_int = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_int.rds"))
+  # tcm_wiki_5 = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_5.rds"))
+  # tcm_wiki_10 = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_10.rds"))
+  # tcm_wiki_110 = readRDS(paste0("C:/Science/Publication/3_sustainable_energy/data/", "tcm_wiki_110.rds"))
+
+} # Create internal and external reference tcms with different window sizes
+  
+  
+```
+
+# Investigate Models
+## Wordcloud
+```{R wordcloud, eval= FALSE, message=FALSE, warning=TRUE}
+  # 17_wordcloud ---------------------------------------------------
+  # full vocabulary  =================================================
+  wordcloud::wordcloud(as.character(vocabulary$term),
+                       as.numeric(vocabulary$doc_count),
+                       #scale=c(4,.7),
+                       max.words=200,
+                       random.order=FALSE,
+                       rot.per=0,
+                       use.r.layout=FALSE,
+                       colors=  rev(c("#000000"
+                                      ,"#252525"
+                                      ,"#525252"
+                                      ,"#737373"
+                                      # ,"#969696"
+                                      # ,"#bdbdbd"
+                                      #  ,"#d9d9d9"
+                                      # ,"#f0f0f0"
+                       ))
+                       #good palette if colors are allowed
+                       #RColorBrewer::brewer.pal(8, "Dark2")
+  )
+ # full vocabulary - tfidf weighted =================================================
+ wc_tfidf = function() {
+ wordcloud::wordcloud(paste0(" ",as.character(colnames(dtm_tfidf), " ")),
+                       as.numeric(colSums(dtm_tfidf)),
+                       scale=c(2,0.15),
+                       max.words=200,
+                       random.order=FALSE,
+                       rot.per=0,
+                       use.r.layout=FALSE,
+                       colors=  rev(c("#000000"
+                                      ,"#252525"
+                                      ,"#525252"
+                                      ,"#737373"
+                                      # ,"#969696"
+                                      # ,"#bdbdbd"
+                                      #  ,"#d9d9d9"
+                                      # ,"#f0f0f0"
+                       ))
+                       #good palette if colors are allowed
+                       #RColorBrewer::brewer.pal(8, "Dark2")
+  )
+ }
+  
+  outfile = paste0(dirres, "wordcloud_tfidf")
+  png(paste0(outfile, ".png"))
+  wc_tfidf()
+  dev.off()
+
+  svg(paste0(outfile, ".svg"))
+  wc_tfidf()
+  dev.off()
+  
+
+  
+  affilliations =  sapply(strsplit(data[, Affiliations ], ";"), `[`,1)
+  affilliations = gsub("(^.*, )([^,]+$)", "\\2",   affilliations, perl = T)
+  affilliations = gsub("\\(.*\\)", "", affilliations, perl = T)  #(e-mail: gkollias@iquadrat.com)
+  affilliations = gsub("\\d", "", affilliations, perl = T) 
+  affilliations = gsub("the", "", affilliations, ignore.case = T)
+  affilliations = gsub("(^.* )([^\\s]+$)", "\\2", affilliations, perl = T)  
+   
+  unique(affilliations[!(grepl("," , affilliations))]) 
+  
+  affilliations = gsub("\\W", "", affilliations, perl =T)
+  affilliations = table(affilliations)
+  affilliations =   affilliations[order(as.numeric(affilliations, decreasing = T))]
+  
+  affilliations[]
+   
+  pie(affilliations[nchar(names(affilliations)) < 20])
+  
+   UniversityofTennesseeKnoxville
+   ersityofMalaya59990KualaLumpurMalaysia 
+   email
+   InstituteCNRSUniversitÃdeLimogesFrance 
+   cnicadeMadridMadridSpain 
+    affilliations[grep("mail",affilliations )]
+   
+
+  
+  # top 20 words as table
+  top_terms_tfidf = data.table(term = colnames(dtm_tfidf)
+                               ,freq = vocabulary$doc_count
+                               ,tfidf = colSums(dtm_tfidf)
+  )
+  top_terms_tfidf = top_terms_tfidf[ order(tfidf,decreasing = T), ]
+  write.csv(top_terms_tfidf[1:50, ], paste0(dirres, "top_terms_tfidf.csv"))
+  
+  
+
+  # cc subset vocabulary  =================================================
+  wordcloud::wordcloud(as.character(vocabulary_cc_subset$term),
+                       as.numeric(vocabulary_cc_subset$doc_count),
+                       #scale=c(4,.7),
+                       max.words=200,
+                       random.order=FALSE,
+                       rot.per=0,
+                       use.r.layout=FALSE,
+                       colors= RColorBrewer::brewer.pal(8, "Dark2")
+  )
+```
+
+## LDA Model Coherence
+### Calculate Coherence Scores
+```{R calc-coherence, eval= FALSE, message=FALSE, warning=TRUE}
+  # Calculate coherence scores per model and topic ---------------------------------------------------
+  #dirs_models = list.files(dirres, pattern = "wlda", full.names = T)  
+  #dirs_models = dirs_models[1]
+  dirs_models = gsub("/models/", "/wlda_1990_2016/", dirmod)
+    # Get top term matrix for each model  =================================================
+  for (i in dirs_models) {
+  #TODO parallelize get top terms... / an additional option would be to directly inlcude this during model fitting
+  # probably for lambda = 1, only for other lambda values an update is necessary
+  modelfiles = list.files(i, pattern = "warp_lda_model", full.names = TRUE)
+  # sort modelfiles by n_topics
+  modelfiles =  modelfiles[ order(as.numeric(unlist(stri_extract_all_regex(basename(modelfiles), "^\\d+"))))]
+  top_terms = sapply(modelfiles , function(m) {
+    lda_model = readRDS(m)
+    n_topics =  as.numeric(unlist(stri_extract_all_regex(basename(m), "^\\d+")))
+    lda_model$model$get_top_words(n = 300, topic_number = 1L:n_topics, lambda = 1)
+  }, USE.NAMES = T, simplify = F)
+  saveRDS(top_terms, paste0(i, "/top_terms_per_model.rds"))
+  }
+  # shell("shutdown -s -t 0") #this is for windows
+  #top_terms = readRDS(paste0(dirdat, "top_terms_per_model.rds"))
+
+  # Calculate coherence scores  =================================================
+  # summary of required type of tcm for different metrics
+  # logratio and difference: internal tcm, boolean document cooccurrence
+  # pmi / npmi: external tcm, windows size 10
+  # mean_cosim: external tcm, windows size 5
+  # mean_cosim2: external tcm, windows size 110
+  
+
+#dirs_models = list.files(dirres, pattern = "wlda", full.names = T)
+for (i in dirs_models) {
+     message(paste0("Calculating coherence for models in: \n", i))
+     start_time = proc.time()
+     year_range =  gsub("(.*)(\\d{4}_\\d{4})(.*)", "\\2", basename(i), perl = T)  
+     top_terms = readRDS(paste0(i, "/top_terms_per_model.rds"))
+     # reduce number of top_terms, otherwise coherence calculation takes too long
+     top_terms = lapply(top_terms, function(x) x[1:15,])
+  # "mean_difference", "mean_logratio ################################################
+  tcm = readRDS(paste0(dirdat, "tcm__standard_ref_4__int__ws_Inf.rds"))
+  coherence_scores_lograt_diff = lapply(top_terms, function(x) {
+    #print(paste0("Model with n_topics: ", ncol(x)))
+    coherence(x = x
+              ,tcm = tcm
+              ,n_doc_tcm = attr(tcm, "n_windows") # in this specific case the same as nrow(dtm)
+              ,smooth = 1e-12
+              ,metric = c("mean_difference", "mean_logratio")
+    )
+  })
+  print("...done with coherence_scores_lograt_diff")
+  # "mean_pmi", "mean_npmi" ################################################
+  tcm = readRDS(paste0(dirdat, "tcm__standard_ref_2__ext__ws_10.rds"))
+  coherence_scores_pmi_npmi = lapply(top_terms, function(x) {
+    #print(paste0("Model with n_topics: ", ncol(x)))
+    coherence(x = x
+              ,tcm = tcm
+              ,n_doc_tcm = attr(tcm, "n_windows")
+              ,smooth = 1e-12
+              ,metric = c("mean_pmi", "mean_npmi")
+    )
+  })
+   print("...done with coherence_scores_pmi_npmi")
+  # "mean_npmi_cosim2" ################################################
+  tcm = readRDS(paste0(dirdat, "tcm__standard_ref_3__ext__ws_110.rds"))
+  coherence_scores_cosim2 = lapply(top_terms, function(x) {
+    #print(paste0("Model with n_topics: ", ncol(x)))
+    coherence(x = x
+              ,tcm = tcm
+              ,n_doc_tcm = attr(tcm, "n_windows")
+              ,smooth = 1e-12
+              ,metric = c("mean_npmi_cosim2")
+    )
+  })
+  print("...done with coherence_scores_cosim2")
+  # "mean_npmi_cosim" ################################################
+  tcm = readRDS(paste0(dirdat, "tcm__standard_ref_1__ext__ws_5.rds" ))
+  coherence_scores_cosim = lapply(top_terms, function(x) {
+    #print(paste0("Model with n_topics: ", ncol(x)))
+    coherence(x = x
+              ,tcm = tcm
+              ,n_doc_tcm = attr(tcm, "n_windows")
+              ,smooth = 1e-12
+              ,metric = c("mean_npmi_cosim")
+    )
+  })
+  print("...done with coherence_scores_cosim")
+  # save coherence scores ################################################
+  coherence_scores = list(lograt_diff_int = coherence_scores_lograt_diff
+                          ,pmi_npmi_ws10 = coherence_scores_pmi_npmi
+                          ,cosim_ws5 = coherence_scores_cosim
+                          ,cosim2_ws110 = coherence_scores_cosim2)
+  attr(coherence_scores, "year_range") = year_range
+  end_time = proc.time()-start_time
+  attr(coherence_scores, "elapsed_time_for_calculation") = end_time["elapsed"]
+  saveRDS(coherence_scores, paste0(i, "/coherence_scores_", year_range,"_top15.rds"))
+  print(paste0("...coherence calculation duration: ", end_time["elapsed"]))
+}
+# shell("shutdown -s -t 0") #this is for windows
+```
+
+
+### Plot coherence scores
+```{R plot-coherence, eval= FALSE, message=FALSE, warning=TRUE}
+  
+ dirs_models = list.files(dirres, pattern = "wlda", full.names = T)
+ #for (i in dirs_models) {  
+   # i = dirs_models[1]
+  year_range =  gsub("(.*)(\\d{4}_\\d{4})(.*)", "\\2", basename(i), perl = T)  
+  coherence_scores = readRDS(paste0(i, "/coherence_scores_", year_range,".rds"))
+  # Prepare and plot coherence scores and loglik information ---------------------------------------------------
+
+  # Calculate mean coherence score over all topics per model =================================================
+  coherence_scores_mean = sapply(coherence_scores, function(x) {
+                                 rbindlist(lapply(x, function(y) {
+                                                 as.data.frame(t(apply(y, 2, 
+                                                          function(z) mean(z, na.rm = T))))
+                                                  })
+                                           )
+                                 }, USE.NAMES = T)
+
+   # Normalize scores plus loglik info for plotting =================================================
+  coherence_scores_mean = setDT(unlist(coherence_scores_mean, recursive = FALSE)
+                                , check.names = TRUE)[]
+  colnames(coherence_scores_mean) = gsub("(^.*\\.)(.*$)", "\\2",  colnames(coherence_scores_mean), perl = T)
+
+  # get model loglik
+  modelfiles = list.files(i, pattern = "warp_lda_model", full.names = TRUE)
+  # sort modelfiles by n_topics
+  modelfiles =  modelfiles[ order(as.numeric(unlist(stri_extract_all_regex(basename(modelfiles), "^\\d+"))))]
+  if (file.exists(paste0(i, "/loglik_models.rds"))) {
+    model_loglik = readRDS( paste0(i, "/loglik_models.rds"))
+  } else {
+    model_loglik = textility::get_loglik_parallel(modelfiles = modelfiles, ncores = 3)
+    saveRDS(model_loglik, paste0(i, "/loglik_models.rds"))
+  }
+  # combine data and normalize
+  plot_data = cbind(coherence_scores_mean, loglik = model_loglik$loglik)
+  
+ # plot(seq(5,1000,5), plot_data$mean_npmi_cosim, type = "l")
+  #scale scores between 0 and 1
+  plot_data[, paste0("normalised_", names(plot_data)):= lapply(.SD, function(x) textility::scale_normal(x))]
+  
+  plot_data[, n_topics:=  model_loglik$ntopics]
+  # order columns and move n_topics to the front
+  setcolorder(plot_data, order(colnames(plot_data)))
+  setcolorder(plot_data, "n_topics")
+  n_topics = plot_data$n_topics
+  # initial plot of scores for first overview =================================================
+  # choose small span in loess to highlight elbows or local extrema
+  # in addition plot full data as dots to show how it really looks like
+  # coherence_scores_initial_plot =
+  #   ggplot(melt(as.data.frame(plot_data), id.vars = "n_topics", variable.name = "metric", value.name = "normalised_score"), aes(n_topics, normalised_score, colour = metric)) +
+  #   geom_point() +
+  #   geom_smooth(span = 0.2, se = FALSE)  +
+  #   scale_x_continuous(breaks= seq(min(n_topics), max(n_topics), 20)) +
+  #   theme(axis.text.x  = element_text(angle=90)) +
+  #   scale_colour_manual(values = c("black"
+  #                                   ,"goldenrod"
+  #                                ,"red4"
+  #                                 ,"steelblue2"
+  #                                 , "darkolivegreen" 
+  #                                  , "blue3"
+  #                                    ,"darkolivegreen3"
+  #                                   )
+  #   )
+
+  # Plot local extrema and select reasonable metrics / best model(s)  =================================================
+  # prepare data for plotting  #################################################
+  # since the highest scores are sought, check were the local extrema are
+  maxima = lapply(plot_data[, 
+                             grep(paste0(c("n_topics", "loglik", "^normalised_"
+                                           ), collapse = "|")
+                                  , colnames(plot_data)
+                                  , invert = T) 
+                            , with = FALSE]
+                            , function(x) get_extrema(x, format_output = "boolean"))
+  maxima = rbindlist(list(lapply(maxima, `[[`, 2)))
+  maxima = cbind(n_topics, maxima)
+  # melt and combine coherence and extrema information
+  maxima_melt =  melt(maxima, id.vars = "n_topics", measure.vars = colnames(maxima)[2:ncol(maxima)], variable.name = "metric", value.name = "extrema_check")
+  # add maxima information for normalised scores (maxima are the same)
+  maxima_melt = rbind(maxima_melt,  maxima_melt)
+  maxima_melt[ duplicated(maxima_melt), metric:= paste0("normalised_", metric)]
+
+  plot_data_melt = melt(plot_data, id.vars = "n_topics", measure.vars = colnames(plot_data)[2:ncol(plot_data)], variable.name = "metric", value.name = "score")
+  plot_data_melt = maxima_melt[plot_data_melt, on = c("n_topics", "metric")]
+  
+  # prepare for plotting
+  plot_data_melt[extrema_check == FALSE, value:= NA]
+  plot_data_melt[extrema_check == TRUE, maxima:= extrema_check * score]
+  # first plot of extrema for overview  #################################################
+  coherence_scores_initial_plot = ggplot() +
+        theme_bw() +
+    scale_x_continuous(breaks= seq(min(n_topics), max(n_topics), 20)) +
+    geom_line(data = plot_data_melt[metric == "normalised_loglik",], aes(n_topics, score)) +
+    geom_line(data = plot_data_melt[!is.na(maxima) & grepl("^normalised(?!_loglik)", metric, perl =T), ],aes(n_topics, maxima), na.rm = FALSE, linetype = "dashed") +
+      geom_point(data = plot_data_melt[metric %like% "^normalised",],aes(n_topics, score), shape = 1, size = 0.7) +
+    geom_smooth(data = plot_data_melt[metric != "loglik" & grepl("^normalised(?!_loglik)", metric, perl =T), ], aes(n_topics, score), span = 0.2, se = FALSE, colour = "black", size = 0.5) +
+    theme(axis.text.x  = element_text(angle=90)) +
+      facet_wrap( ~ metric, ncol = 3)
+  ggsave(paste0(i, "/coherence_initial_top5.pdf"), plot =   coherence_scores_initial_plot , device = "pdf")
+ # ggsave(paste0(i, "/coherence_initial_top5.svg"), plot =   coherence_scores_initial_plot , device = "svg")
+  #ggsave(paste0(i, "/coherence_initial_top5.jpg"), plot =   coherence_scores_initial_plot , device = "jpg")
+  saveRDS(plot_data_melt, paste0(i, "/coherence_initial_plot_data.rds"))
+ #}
+  # shell("shutdown -s -t 0") #this is for windows
+  # plot selection of informative metrics  #################################################
+  
+  # model 1990-2016
+  # logratio and cosim metrics are not really informative
+  
+  # the course of NMPI and PMI are more or less the same
+  # only NPMI will be used
+    ggplot() +
+    theme_bw() +
+    scale_x_continuous(breaks= seq(min(n_topics), max(n_topics), 20)) +
+    geom_line(data = plot_data_melt[!is.na(maxima) & metric %like% "normalised_mean_npmi|normalised_mean_diff", ],aes(n_topics, maxima), na.rm = FALSE, linetype = "dashed") +
+      geom_point(data = plot_data_melt[metric %like% "normalised_mean_npmi",],aes(n_topics, score), shape = 1, size = 0.7) +
+    geom_smooth(data = plot_data_melt[metric != "loglik" & grepl("normalised_mean_npmi|normalised_mean_diff", metric, perl =T), ], aes(n_topics, score), span = 0.2, se = FALSE, colour = "black", size = 0.5) +
+    theme(axis.text.x  = element_text(angle=90)) +
+  facet_wrap( ~ metric, ncol = 1)
+
+  # get intersting maxima and corresponding n_topics / create final plot  #################################################
+  maxima_n_topics_selected  = c(diff1 = plot_data_melt[metric == "mean_difference" & n_topics %in% 1:100][ score == max(score), n_topics]
+                                ,diff2 = plot_data_melt[metric == "mean_difference" & n_topics %in% 56:1000][score == max(score), n_topics]
+                                ,npmi1 = plot_data_melt[metric == "mean_npmi" & n_topics %in% 1:100][ score == max(score), n_topics]
+                                ,npmi2 = plot_data_melt[metric == "mean_npmi" & n_topics %in% 100:1000][score == max(score), n_topics]
+                                ,npmi_cos1 = plot_data_melt[metric == "mean_npmi_cosim2" & n_topics %in% 1:1000][ score == max(score), n_topics]
+                                ,npmi_cos2 = plot_data_melt[metric == "mean_npmi_cosim2" & n_topics %in% 30:1000][score == max(score), n_topics]
+  )
+  
+  #npmi_cosim2 information is not very strong but supports the favored n_topic range of the other two metrics
+  # final selection
+  n_topics_optimum =  maxima_n_topics_selected[c("diff1", "diff2", "npmi1", "npmi2")]
+  
+  breaks_n_topics = sort(unique(c(n_topics_optimum, seq(100, 1000, 100))))
+  #change name of metric for plotting
+  plot_data_melt[metric == "mean_npmi_cosim2", metric:= gsub("cosim2", "cosim_set", metric)]
+  plot_data_melt[metric == "normalised_mean_npmi_cosim2", metric:= gsub("cosim2", "cosim_set", metric)]
+  
+  metrics_final_plot = c("normalised_mean_difference", "normalised_mean_npmi_cosim_set", "normalised_mean_npmi")
+  
+  coherence_optima_plot =
+    ggplot() +
+    theme_bw() +
+    xlab("number of topics") +
+    ylab("normalised coherence score") +
+    theme(axis.text.x  = element_text(angle=90, size = 8, vjust = 0.001)
+          ,axis.text.y  = element_text(size = 8)
+          ,axis.title.x  = element_text(size = 10)
+          ,axis.title.y  = element_text(size = 10)
+    ) +
+    #workaround to increase distance between tick mark 25 and 55: insert label with linebreak
+    scale_x_continuous(breaks= seq(0,1100,by=50)) +
+    
+    # turn on if information on loglik is of interest
+    # it seems that for WarpLDA loglik information is not relevant 
+    # see: https://github.com/dselivanov/text2vec/issues/288
+    # geom_line(data = plot_data_melt[metric == "normalised_loglik",]
+    #           , aes(n_topics, score)) +
+    
+    geom_line(data = plot_data_melt[!is.na(maxima) & metric %in% metrics_final_plot, ]
+              ,aes(n_topics, maxima, group = metric), linetype =  "solid") +
+    geom_vline(xintercept =  n_topics_optimum, linetype = "dashed", color = "grey45") +
+    # geom_point(data = plot_data_melt[!is.na(maxima) & !(metric %in% c("mean_logratio", "mean_pmi")), ]
+    #            ,aes(n_topics, maxima, shape = metric), na.rm = FALSE) +
+    # scale_shape_manual(values = c(1,2, 3, 4)) +
+    facet_wrap( ~ metric, ncol = 1) +
+    # https://stackoverflow.com/questions/11023129/using-annotate-to-add-different-annotations-to-different-facets
+   
+     geom_label(data=data.frame(n_topics = 900, score = 0.8,label = "Dashed lines at n_topics:\n22, 55, 200, 300"
+                         ,metric = factor("normalised_mean_npmi",
+                                          levels = unique(plot_data_melt$metric)))
+                         ,aes(n_topics,score ,label = label), inherit.aes=FALSE
+                       # , label.padding = unit(0.25, "mm")
+                         ,label.size = 0.1
+                        , label.r = unit(0, "lines")
+                        , size = 3
+                        , color = "grey45")
+
+
+  
+  ggsave(paste0(dirres, "wlda_1990_2016/coherence_optima.pdf"), plot = coherence_optima_plot, device = "pdf")
+  ggsave(paste0(dirres, "wlda_1990_2016/coherence_optima.svg"), plot = coherence_optima_plot, device = "svg")
+  ggsave(paste0(dirres, "wlda_1990_2016/coherence_optima.jpg"), plot = coherence_optima_plot, device = "jpg")
+  
+} # Prepare and plot coherence scores and loglik information
+```
+
+## LDA model term check
+```{R lda-term-check, eval= FALSE, message=FALSE, warning=TRUE}
+ 
+
+  modelfiles = list.files(paste0(dirres, "wlda_1990_2016/"), full.names = TRUE)
+  n_topics = 300
+  model_check = readRDS(modelfiles[grep(paste0("/", n_topics, "topics_warp_lda_model"), modelfiles)])
+  model_check$model
+  top_terms = model_check$model$get_top_words(n = 50, topic_number = 1L:  n_topics, lambda = 1)
+  #top_terms = apply(top_terms, 2, function(x) paste0(x, collapse = "#"))
+    term_patterns = c("fukushima|chernob", "nuclear_disaster|nuclear_accident", "oil_crisis", "solar_energy|solar_power|solar_thermal", "wind_energy|wind_power", "hydropower|hydro_energy", "nuclear_energy|nuclear_power", "coal_power|coal_fired", "bioenergy", "smart_grid")
+  
+  patterns_in_topics(term_patterns = term_patterns, topics =  top_terms , check_n_top_terms = 50)
+  
+  
+ # investigate selected models on specific target terms -------------------------------------------
+  models_check = lapply(c(modelfiles_optimum, modelfiles[grep("k510_", modelfiles)]), readRDS)
+  
+  models_check_top_n_terms = lapply(models_check, function(x, n_top_terms = 100) {
+    n_topics = ncol(x$doc_topic_distr)
+    x$model$get_top_words(n = n_top_terms, topic_number = 1L:n_topics , lambda = 1)
+  })
+  # check how some rare words of specific real events and some general known relevant fields are represented in topic
+  # that have played a role in selecting collocation parameters
+  term_patterns = c("fukushima|chernob", "nuclear_disaster|nuclear_accident", "oil_crisis", "solar_energy|solar_power|solar_thermal", "wind_energy|wind_power", "hydropower|hydro_energy", "nuclear_energy|nuclear_power", "coal_power|coal_fired", "bioenergy", "smart_grid")
+  check_term_patterns = lapply(models_check_top_n_terms, function(x) patterns_in_topics(term_patterns = term_patterns
+                                                                                        , topics = x
+                                                                                        , check_n_top_terms = 50))
+  
+  # [1] k25_Warp_LDA_model_0h_1min.rds"
+  # this model does not generate good topics
+  # the highly relevant but very general terms in the field of energy are simply mixed up in the topics
+  # e.g., within the first 30 terms solar energy only appears together with wind energy / fossil fuel / renewable energy / energy security / world
+  # this does make sense but simply addresses the discussion about renewables vs. fossil fuels in a global context
+  # there is no topic focussing on coal power nor nuclear power
+  
+  # [2] k55_Warp_LDA_model_0h_2min.rds"
+  # solar power and wind power are still mixed together in the first 8 terms even
+  # there is a nucelar power topic now, still no coal power topic
+  # check quality of solar power topic again..
+  models_check_top_n_terms[[2]][, 44]
+  # assumption confirmed, still mixed up with wind, etc.
+  
+  # [3] k200_Warp_LDA_model_0h_4min.rds"
+  # there is a coal power topic now, however, it includes natural gas as second term
+  # the solar terms show 4 topics: a mixed renewables topic, a PV topic, an emergy analysis topic, a mixed PV / solar thermal topic
+  
+  
+  # [4] k300_Warp_LDA_model_0h_6min.rds"
+  # the only model which addresses fukushima within the first 100 words
+  # here finally PV and solar thermal are separate topics
+  # there is no clear coal power topic, seems to be coupled with chp or other topics always
+  # some topics are at the edge of getting difficult to interpret
+  # at least when looking only at the top 10 terms
+  
+  # [5] k510_Warp_LDA_mod..."
+  # this model has an even better separating resolution
+  # addresses the oil price as a topic
+  # part of the topics are not easy to interpret
+  # topics begin to duplicate more thatn in k300 model
+  
+  # CONCLUSION
+  # Check models with the with 300 and 510 topics due to high separating resolution regarding specific "energy disciplines / fields"
+  # be aware of the worse interpretability in the 510 model for several topics
+  # the 510 model may at least serve to validate how algorithm perforsm in terms of time aspects when looking at
+  # the oil price topic
+  
+```
+
+
+## Topic trends
+```{R topic-trends, eval= FALSE, message=FALSE, warning=TRUE}
+  # prevalence of top topics over time -----------------------------------------------------
+  # for (n_topics in c(200, 300, 510)) { # optionally loop over n_topics for investigation of several topics
+  # load data, selected model and apply basic preparatory steps =================================================
+ 
+
+  # modelfiles = list.files(paste0(dirres, "wlda_2012_2016/"), full.names = TRUE)
+  # n_topics = 300
+  # # dir.create( paste0(dirres, "wlda_2012_2016/LDAvis_ntopics_", n_topics, "335/"))
+  # model_selected = readRDS(modelfiles[grep(paste0("/", n_topics, "topics"), modelfiles)])
+  
+  modelfiles = list.files(paste0(dirres, "wlda_1990_2016/"), full.names = TRUE)
+  n_topics = 300
+  model_selected = readRDS(modelfiles[grep(paste0("/", n_topics, "_topics_warp_lda_model"), modelfiles)])
+  #dtm = readRDS(paste0(dirdat, "dtm_lda.rds"))
+  
+  topic_trends =  get_topic_trends(doc_topic_distr = model_selected$doc_topic_distr
+                , top_terms = model_selected$model$get_top_words(n = 20, topic_number = 1:n_topics, lambda =  1)
+                , doc_ids_years = setnames(data[data.table(id = as.integer(rownames(model_selected$doc_topic_distr))),
+                                           .(id, Year), on = "id"]
+                                           , 1:2, c("id", "year"))[]
+                , sep_labels = "#"
+                , topic_selection_qt = .95
+                , topic_selection_top_n = 20
+                , topic_selection_pattern =  paste0(c("solar", "photovolt", "^pv$", "^csp$"
+                                                      ,"concentrated_solar_power", "wind", "^hydro", "hydro_power"
+                                                      , "hydropower", "nuclear", "coal", "gas", "oil", "lignite"
+                                                      , "hydrogen", "bioenergy", "biomass", "biogas", "fusion"
+                                                      , "smart_grid", "lithium", "storage", "chp", "combined_heat"
+                                                      , "combin_heat", "electric", "heat"), collapse = "|"))
+    
+
+  saveRDS(topic_trends, paste0(dirres, "wlda_1990_2016/", n_topics, "_topic_trends_lambda_100.rds"))
+
+  # plot topic trends =================================================
+  # n_topics = 300  
+  #topic_trends = readRDS(paste0(dirres, "wlda_1990_2016/", n_topics, "_topic_trends_lambda_100.rds")) 
+
+  #topic_trends = readRDS(paste0(dirres, n_topics, "_topic_trends_lambda_0035.RDS"))  
+  # prepare data for plotting #################################################
+
+  # for removing all line breaks...
+  # topic_trends[, label:= gsub("\n", "#", label)]
+  #insert line breaks in labels for plotting
+  # topic_trends[, label:= gsub("#", "\n", label, fixed = T)]
+  #in case line breaks shall only be inserted after, e.g,  every second word...
+  # topic_trends[, label:= gsub("([^\n]+[\n][^\n]+)\n", "\\1#", label)]
+  
+  # some general examples how to change number of line breaks
+  #gsub("([^#]+#[^#]+)#", "\\1\n", "a#b#c#d#e")
+  #gsub("([^\n]+[\n][^\n]+)\n", "\\1#", "a\nb\nc\nd\ne")
+  # in case all line breaks shall be removed again, do
+  # topic_trends_aggregated[, label:= gsub("\n", "#", label)]
+
+  #TODO allow line breaks to be defined by user
+  #line breaks each third word
+  # topic_trends[["topic_trends_aggr"]][, label2:= gsub("([^#]+#[^#]+#[^#]+)#", "\\1\n", label)]
+  #topic_trends_aggr[, label:= gsub("([^#]+#[^#]+#[^#]+#[^#]+)#", "\\1\n", label)]
+  #topic_trends_aggr[, label:= gsub("([^#]+#[^#]+)#", "\\1\n", label)]
+
+
+  #line breask each second word
+  # topic_trends[["topic_trends_aggr"]][, label2:= gsub("([^#]+#[^#]+)#", "\\1\n", label)]
+
+  #line breaks after every word / limit to top 5 terms
+  topic_trends[["topic_trends_aggr"]][, label2:= gsub("([^#]+#[^#]+#[^#]+#[^#]+#[^#]+)(.*$)", "\\1", label)]
+  topic_trends[["topic_trends_aggr"]][, label2:= gsub("#", "\n", label2)]
+  
+  # add information on slope to each topic
+   topic_trends[["topic_trends_aggr"]][,
+                lm_slope:= topic_trends[["models_linear"]][topic == .BY, slope], by = topic]
+   topic_trends[["topic_trends_aggr"]][,
+                p_slope:= topic_trends[["models_linear"]][topic == .BY, p_slope], by = topic]
+
+   slope_ranks =  unique(topic_trends[["topic_trends_aggr"]][,.(topic, lm_slope)])
+   setorder( slope_ranks , -lm_slope)
+   slope_ranks[, slope_rank:= rank(-lm_slope,  ties.method = "min")]
+
+   
+   slope_ranks[lm_slope <= quantile(lm_slope, 0.05), ]
+   
+   topic_trends[["topic_trends_aggr"]][, label2:= 
+          paste0("Topic: ", .BY
+                ,"\n" 
+               , "slope rank: ",   slope_ranks[topic == .BY, slope_rank]
+                # "slope lm: ", format(lm_slope, scientific = TRUE, digits = 3)
+                # ," - p slope: ", format(p_slope, scientific = TRUE, digits = 3) 
+                ," \n"
+                 , paste0(paste0(rep("-", 2*nchar("greenhouse_gas_emissions")),  collapse = ""), "\n", collapse = "")
+                 , label2), by = topic]
+  # order by slope
+  # https://stackoverflow.com/questions/13685295/sort-a-data-table-fast-by-ascending-descending-order
+  setorder(topic_trends[["topic_trends_aggr"]][, ord := order(order(lm_slope, decreasing = T))], ord)[, ord := NULL]
+
+  
+  topic_trends[["topic_trends_aggr"]][prob_cumsum >= quantile(
+                           topic_trends_aggr[,max(prob_cumsum), by = topic]$V1
+                           , probs = topic_selection_qt), topic]
+  
+cumsum_selection = topic_trends[["topic_trends_aggr"]][prob_cumsum >= quantile(topic_trends[["topic_trends_aggr"]][, max(prob_cumsum),by = .(topic)]$V1, probs = 0.95),.(topic, label, prob_cumsum)]
+setorder(cumsum_selection, -prob_cumsum)
+write.csv(cumsum_selection, paste0(dirres, "wlda_1990_2016/topic_table_cumsum_qt_95.csv") )  
+
+  # initial plot of topics with "known" trend #################################################
+  # to check how model resolves time trends, first plot some topics of which the trend can be
+  # be antipicated to a certain extent based on domain knowledge
+  # select topics based on keywords that address rather"new" technologies, e.g., "carbon capure and storage", "internet", etc.
+  # these topics would potentially show an increasing trend (run below loop manually)
+  topic_selection_initial_check = list(initial_check = topic_trends[["topic_trends_aggr"]][grepl("internet|smart_grid|^fusion|urban_area|smart_grid|internet|cell_phone|mobile_phone|lithium", label), unique(topic)])
+  # CONCLUSION:
+  # the check shows that the topics have an increasing trend, 
+  # except urban areas / cities which have a realtively stable trend, 
+  # which is reasonable since cities have always played a role in the background 
+  
+  
+# dir_initial_trend_plot = paste0(dirres, "/trend_plots_initial/")
+# if (!dir.exists(dir_initial_trend_plot)) {
+#   dir.create(dir_initial_trend_plot)
+# }
+# 
+
+dir_initial_trend_plot = paste0(dirres, "wlda_1990_2016/")
+
+# number of topics with positive trend
+unique(topic_trends[["topic_trends_aggr"]][, .(topic, lm_slope)])[lm_slope > 0, .N]
+# 137
+# number of topics with negative trend
+unique(topic_trends[["topic_trends_aggr"]][, .(topic, lm_slope)])[lm_slope < 0, .N]
+# 163
+
+unique(topic_trends[["topic_trends_aggr"]][, .(topic, lm_slope)])[lm_slope >= quantile(lm_slope, probs = 0.95), ]
+
+# table of topic information
+topic_table = topic_trends[["topic_trends_aggr"]][topic %in%  topic_trends[["topic_selection"]]["strong_positive_trend_qt"][[1]], ]
+names(topic_table)
+# https://stackoverflow.com/questions/24558328/how-to-select-the-row-with-the-maximum-value-in-each-group
+topic_table = topic_table[, .(topic, label, lm_slope, p_slope, prob_cumsum)][ topic_table[, .I[prob_cumsum == max(prob_cumsum)], by= topic]$V1 ]
+topic_table[,  lm_slope:= format(lm_slope , scientific = TRUE, digits = 3)]
+topic_table[,  p_slope:= format(p_slope , scientific = TRUE, digits = 3)]
+topic_table[,   prob_cumsum:= round(prob_cumsum , d = 1)]
+topic_table[, label:= gsub("#" , ", ", label)]
+write.csv(topic_table, paste0(dirres, "wlda_1990_2016/topic_table_strongest_positive_trend_qt.csv"))
+
+set1 = topic_table[, topic]
+
+
+
+topic_table = topic_table = topic_trends[["topic_trends_aggr"]][topic %in%  topic_trends[["topic_selection"]][ "positive_trend_all"][[1]], ]
+# https://stackoverflow.com/questions/24558328/how-to-select-the-row-with-the-maximum-value-in-each-group
+topic_table = topic_table[, .(topic, label, lm_slope, p_slope, prob_cumsum)][ topic_table[, .I[prob_cumsum == max(prob_cumsum)], by= topic]$V1 ]
+topic_table[,  lm_slope:= format(lm_slope , scientific = TRUE, digits = 3)]
+topic_table[,  p_slope:= format(p_slope , scientific = TRUE, digits = 3)]
+topic_table[,   prob_cumsum:= round(prob_cumsum , d = 1)]
+topic_table[, label:= gsub("#" , ", ", label)]
+topic_table = topic_table[ prob_cumsum >= quantile(prob_cumsum, probs = 0.95), ]
+setorder(topic_table, -prob_cumsum)
+
+write.csv(topic_table, paste0(dirres, "wlda_1990_2016/topic_table_strongest_cumsum_qt95.csv"))
+
+topic_trends[["topic_trends_aggr"]][,min(lm_slope) ]
+
+topic_table = topic_trends[["topic_trends_aggr"]][topic %in%  topic_trends[["topic_selection"]]["strong_negative_trend_qt"][[1]], ]
+names(topic_table)
+# https://stackoverflow.com/questions/24558328/how-to-select-the-row-with-the-maximum-value-in-each-group
+topic_table = topic_table[, .(topic, label, lm_slope, p_slope, prob_cumsum)][ topic_table[, .I[prob_cumsum == max(prob_cumsum)], by= topic]$V1 ]
+topic_table[,  lm_slope:= format(lm_slope , scientific = TRUE, digits = 3)]
+topic_table[,  p_slope:= format(p_slope , scientific = TRUE, digits = 3)]
+topic_table[,   prob_cumsum:= round(prob_cumsum , d = 1)]
+topic_table[, label:= gsub("#" , ", ", label)]
+write.csv(topic_table, paste0(dirres, "wlda_1990_2016/topic_table_strongest_negative_trend_qt.csv"))
+
+
+
+plot_topic_trends(topic_trends = topic_trends[["topic_trends_aggr"]]
+                 ,topic_selection = topic_selection_initial_check
+                 #,topic_selection =  topic_trends[["topic_selection"]][c("strong_positive_trend_topx", "max_cumsum_topx", "my_selection")]
+                 #,n = NULL
+                 ,facet_columns = 4
+                 ,device = "pdf"
+                 ,text_size = 10
+                 #,ylim = c(-0.0025, 0.0175)
+                 #,exclude_topics = exclude_topics
+                 , out_dir = dir_initial_trend_plot
+                 , filename_suffix = "_test_final"
+                 )
+
+# plot all topics in topic selection for initial exploration of data to refine selection and tune plotting parameters
+
+# another typical selection would usually be only the topics with strongest positive or negative trend
+plot_topic_trends(topic_trends = topic_trends[["topic_trends_aggr"]]
+                 ,topic_selection = topic_trends[["topic_selection"]]
+                 #,n = NULL
+                 ,facet_columns = 4
+                 ,device = "pdf"
+                 ,text_size = 10
+                 #,ylim = c(-0.0025, 0.0175)
+                 #, exclude_topics = exclude_topics
+                 , out_dir = "C:/Science/Publication/3_sustainable_energy/results/wlda_1990_2016_b/" #dir_initial_trend_plot
+                 , filename_suffix = "_lambda_100"
+                 )
+
+
+selection = list(strong_positive = c(unique(topic_trends[["topic_trends_aggr"]][ lm_slope >= sort(unique((lm_slope)), decreasing = TRUE)[5], topic])
+                 , unique(topic_trends[["topic_trends_aggr"]][ lm_slope <= sort(unique((lm_slope)), decreasing = FALSE)[5], topic])
+                   )
+)
+                 
+
+
+plot_topic_trends(topic_trends = topic_trends[["topic_trends_aggr"]]
+                 ,topic_selection = selection # topic_trends[["topic_selection"]]["strong_positive_trend_qt"]
+                 ,n = 10
+                 ,facet_columns = 5
+                 ,device = "pdf"
+                 ,text_size = 12
+                 #,ylim = c(-0.0025, 0.0175)
+                 #, exclude_topics = exclude_topics
+                 , out_dir = dir_initial_trend_plot
+                 , filename_suffix = "_test_final"
+                 )
+
+
+#-------------------------final plot for publication - top 5  positive / negative slope
+plot_topic_trends = function(topic_trends, topic_selection, n = NULL, exclude_topics = NULL, out_dir = NULL, filename_suffix = ""
+                             , ylim = NULL, facet_columns = 3, text_size = 12, device = "pdf", order_by_decreasing_trend = TRUE) {
+
+
+selection = list(selection = c(unique(topic_trends[["topic_trends_aggr"]][ lm_slope >= sort(unique((lm_slope)), decreasing = TRUE)[5], topic])
+                 , unique(topic_trends[["topic_trends_aggr"]][ lm_slope <= sort(unique((lm_slope)), decreasing = FALSE)[5], topic])
+                   )
+)
+                 
+  
+  
+  tt = topic_trends[["topic_trends_aggr"]]
+  topic_selection = selection 
+  n = max(sapply(topic_selection, length))
+  facet_columns = 5
+  
+  
+  device = "pdf"
+  text_size = 12
+                 #,ylim = c(-0.0025, 0.0175)
+                 #, exclude_topics = exclude_topics
+   out_dir = "C:/Science/Publication/3_sustainable_energy/results/wlda_1990_2016/"
+   filename_suffix = "_test_final"
+  
+  
+
+    ylim = tt[topic %in% unique(unlist(topic_selection)), c(0, max(prob_mean))]
+
+
+  # https://stackoverflow.com/questions/15116081/controlling-order-of-facet-grid-facet-wrap-in-ggplot2
+  tt[, facet_group := factor(label2, levels = unique(label2))]
+
+# order by decreasing trend
+    topic_selection = lapply(topic_selection, function(x) {
+      unique(tt[topic %in% x, .(topic, lm_slope)])[
+      order(lm_slope, decreasing = TRUE), as.character(topic)]
+    })
+
+    
+     n_plot = 10
+    i = 1
+    p = ggplot(tt[topic %in% topic_selection[[i]][1:n_plot], ]) +
+      geom_point(aes(year, prob_mean, group = label), color = "black", size = 1, shape = 1) +
+      geom_line(aes(year, loess_aicc_fit, group = label), color = "black", size = 0.5) +
+      geom_line(aes(year, lm_fit , group = label), color = "black", linetype = "dashed", size = 0.5) +
+     # geom_line(aes(year, prob_cumsum/(max(prob_cumsum*(1/max(prob_mean)))), group = label), color = "grey60", size = 0.7) +
+      ylim(ylim) +
+      ylab("mean expected topic probability") +
+      scale_x_continuous(breaks = c(seq(min(tt$year),max(tt$year), 10) ,max(tt$year))
+                         ,limits = c(min(tt$year),max(tt$year))
+      ) +
+      #xlim(min(tt_aggr$year)[1], max(tt_aggr$year)[1]) +
+      #geom_text(data = unique(topic_trends_aggr[topic %in% topic_selection[[i]], .(topic, label)]), aes(x = max(topic_trends_aggr$year), y = -max(topic_trends_aggr$prob_mean)/6, label = topic, group = topic)) +
+      theme_bw(base_size = 12) +
+      facet_wrap( ~ facet_group, ncol = facet_columns) +
+      theme(strip.text.x = element_text(size = 12)) +
+      theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+     theme(aspect.ratio = 1.25)
+
+    ggsave(filename = paste0(out_dir, n_topics, "_topics_", names(topic_selection)[i], "final", ".", device)
+           , plot = p
+           , device = device
+           , width = 12
+           , height = 5*ceiling(length(topic_selection[[i]][1:n_plot])/3)
+           , units = "in", limitsize = FALSE)
+    
+        ggsave(filename = paste0(out_dir, n_topics, "_topics_", names(topic_selection)[i], "final", ".", "svg")
+           , plot = p
+           , device = "svg"
+           , width = 12
+           , height = 5*ceiling(length(topic_selection[[i]][1:n_plot])/3)
+           , units = "in", limitsize = FALSE)
+  } # loop over topic selection
+
+
+#------------------------------------
+
+
+plot_fluctuation = list(strong_fluctuation_selection = c("297", "226", "85", "217", "10", "254"))
+
+topic_trends[["topic_trends_aggr"]][label2 %like% "turkey", label2:= lapply(label2, function(x) { 
+  gsub(as.character(x
+  ,"\nturkey#renewable_energy_source#fossil_fuel\ncountry#energy_demand#import\nrenewable_energy#energy_source\nrenewable_energy_resource#domestic#grow\nworld#energy_supply#energy_resource\npotential#rapidly#turkish\nrenewable_source#renewable#supply"
+  ,  x
+  , fixed = T)
+})]
+topic_trends[["topic_trends_aggr"]][, label2:= as.factor(label2)]
+  
+
+plot_topic_trends(topic_trends = topic_trends[["topic_trends_aggr"]]
+                 ,topic_selection =  plot_fluctuation
+                 ,n = 9
+                 ,facet_columns = 3
+                 ,device = "pdf"
+                 ,text_size = 12
+                 #,ylim = c(-0.0025, 0.0175)
+                 #, exclude_topics = exclude_topics
+                 , out_dir = dir_initial_trend_plot
+                 , filename_suffix = "_lambda_100"
+                 )
+
+# inspect plots and compile final topic selection, plots and publication info =================================================
+  } # loop over topic selection
+```
+
+## LDAvis PCA
+```{R ldavis, eval= FALSE, message=FALSE, warning=TRUE}
+  # check intertopic distance -----------------------------------------------
+ 
+  # for 2012 to 2016
+  # modelfiles = list.files(paste0(dirres, "wlda_2012_2016/"), full.names = TRUE)
+  # n_topics = 335 
+  # dir.create( paste0(dirres, "wlda_2012_2016/LDAvis_ntopics_", n_topics, "/"))
+  # model_selected = readRDS(modelfiles[grep(paste0("/", n_topics, "topics"), modelfiles)])
+
+  dir_case = paste0(dirres, "wlda_1990_2016/")
+  n_topics = 300
+  topic_trends = readRDS(paste0(dir_case, n_topics, "_topic_trends_lambda_100.rds"))
+  modelfiles = list.files(dir_case, full.names = TRUE)
+  model_selected = readRDS(modelfiles[grep(paste0("/", n_topics, "topics_warp_lda"), modelfiles)])
+   
+  top_terms = model_selected$model$get_top_words(n = 5, topic_number = 1:n_topics, lambda = 1)
+  top_terms = apply(top_terms, 2, function(x) paste0(x, collapse = "\n"))
+  topic_word_distr = model_selected$model$topic_word_distribution
+  # subset only topics with positive trend
+  subset_positive = sort(as.numeric(topic_trends[["topic_selection"]][["positive_trend_all"]]))
+
+  subset_positive_qt50 = as.numeric(topic_trends$models_linear[slope_sign == 1][slope >= quantile(slope, probs = 0.5), topic ])
+  subset_positive_qt25 = as.numeric(topic_trends$models_linear[slope_sign == 1][slope >= quantile(slope, probs = 0.25), topic ])
+
+  slopes = topic_trends$models_linear[slope_sign == 1, .(topic, slope)][order(as.numeric(topic)), ]
+  
+  
+  jspca = jsPCA_robust(topic_word_distr)
+  
+  # saveRDS(jspca, paste0(dir_case,  "jspca_robust_300_topics.rds"))
+  # jspca = readRDS(paste0(dir_case,  "jspca_robust_300_topics.rds"))
+
+  #rownames(jspca) =  top_terms
+  
+  # doc_topic_distr = model_selected$doc_topic_distr
+  # jspca_dt = jsPCA_robust(doc_topic_distr)
+  # rownames(jspca_dt) =  top_terms
+
+  # top_terms = top_terms[subset_positive]
+  # topic_word_distr = topic_word_distr[subset_positive, ]
+
+  # hierarchical clustering
+  jspca_positive_trend =   jspca[subset_positive, ]
+  set.seed(42)
+  jspca_cl = hclust(dist(  jspca_positive_trend ), method = "ward.D2")
+  opar = par()
+  par(mar=c(0, 4,0, 0)) # c(bottom, left, top, right)
+  pdf(paste0(dir_case, "dendro_hclust_topic_dist.pdf"))
+  p = as.dendrogram(jspca_cl)
+  plot(p,leaflab = "none", ylab = "Height" )
+  rect.hclust(jspca_cl, k = 4, border = "grey60")
+  dev.off()
+  svg(paste0(dir_case, "dendro_hclust_topic_dist.svg"))
+  p = as.dendrogram(jspca_cl)
+  plot(p,leaflab = "none", ylab = "Height" )
+  rect.hclust(jspca_cl, k = 4, border = "grey60")
+  dev.off()
+  par(opar)
+  
+  #jspca_positive_trend = jspca
+  setDT(jspca_positive_trend)
+  jspca_positive_trend = jspca_positive_trend[,topic := 1:nrow(jspca[subset_positive, ]),
+                                              ][, label:= top_terms[subset_positive]][
+                                              ,slope:= slopes$slope][
+                                              ,cl:= cutree(jspca_cl, 4)][,
+                                              qt_plot:= slope >= quantile(slope, probs = 0.4), by = cl]
+  
+#kmeans clustering: more difficult to determine number of clusters
+  # data_cl <-  jspca_positive_trend[,c("x", "y")]
+# wss <- (nrow(data_cl)-1)*sum(apply(data_cl,2,var))
+# set.seed(7)
+#   for (i in 2:20) wss[i] <- sum(kmeans(data_cl,
+#                                        centers=i, iter.max = 20)$withinss)
+# plot(1:20, wss, type="b", xlab="Number of Clusters",
+#      ylab="Within groups sum of squares")
+#   
+# set.seed(42)
+# km = kmeans(jspca_positive_trend[,c("x", "y")],7, iter.max = 20)
+# jspca_positive_trend$label = rownames(jspca_positive_trend)
+# jspca_positive_trend$cl = km$cluster
+
+find_hull <- function(df) df[chull(df$x, df$y), ]
+hulls <- do.call(rbind, lapply(split(jspca_positive_trend, jspca_positive_trend$cl), find_hull))
+hulls_labels =   do.call(rbind, lapply(split(hulls, hulls$cl), function(x) {data.frame(x = mean(x$x), y = mean(x$y))}))
+hulls_labels$cl = unique(hulls$cl)
+
+set.seed(3)
+topic_distance_cluster = ggplot(jspca_positive_trend[qt_plot == TRUE, ], aes(x=x, y=y, colour = cl)) +
+geom_point(#aes(color= cl)
+           ) +
+ggrepel::geom_text_repel(aes(label = label, lineheight = 0.5), size = 3, segment.size = 0.1) +
+scale_colour_gradient(low = "grey60", high = "grey0") +
+theme_bw() +
+theme(legend.position="none"
+      , axis.text = element_text(size = 5)
+      #, axis.ticks = element_blank()
+      , axis.title  = element_blank()
+      ,panel.grid = element_blank()
+      #,panel.border = element_blank()
+      ) +
+geom_polygon(data = hulls, aes(group = cl),  alpha = 0.05, linetype = 0) +
+geom_label(data = hulls_labels, aes(label = cl), color = "black", label.r = unit(0, "lines"), size = 2) +
+geom_label(data = data.frame(x = -0.17, y = 0.1, label = paste0(paste0(1:nrow(hulls_labels), ": "), 
+                                                                c("low carbon transitions & decision-making"
+                                                                  ,"monitoring & optimization"
+                                                                  , "material science & process engineering"
+                                                                  , "(renewable) power systems")
+                                                                ,  collapse = "\n")
+                              ), aes(label=label)
+                  , color = "black", label.r = unit(0, "lines"), size = 3, hjust = 0)
+
+
+ggsave(paste0(dir_case,"cluster_map_topic_distance_qt_v2.pdf"), plot = topic_distance_cluster, device = "pdf")
+
+ggsave(paste0(dir_case,"cluster_map_topic_distance_qt_v2.svg"), plot = topic_distance_cluster, device = "svg")
+ 
+  # cluster = parallel::makeCluster(detectCores() - 1)
+  # json_lda = LDAvis::createJSON(phi = model_selected$model$topic_word_distribution
+  #                               ,theta = model_selected$doc_topic_distr
+  #                               ,doc.length = rowSums(dtm)
+  #                               ,vocab = colnames(dtm)
+  #                               ,term.frequency = colSums(dtm)
+  #                               ,cluster = cluster
+  #                               ,plot.opts = list(xlab = "PC1", ylab = "PC2")
+  #                               ,mds.method = jsPCA_r
+  #                               #,R = 30
+  # )
+  # # parallel::stopCluster(cluster)
+  # LDAvis::serVis(json_lda
+  #                , out.dir = paste0(dirres, paste0("LDAvis_ntopics_", n_topics))
+  #                , open.browser = TRUE)
+  model_selected$model$plot(out.dir =  paste0(dirres, paste0("LDAvis_ntopics_", n_topics))
+  , open.browser = FALSE
+  , mds.method = jsPCA_r)
+
+```
+
+
+## Topic network
+```{R topic-network, eval= FALSE, message=FALSE, warning=TRUE}
+  # topic network ---------------------------------------------------
+  # http://kateto.net/network-visualization
+  # https://github.com/trinker/topicmodels_learning
+  
+  # get, format, scale co-occurrence of topics =================================================
+   dir_case = paste0(dirres, "wlda_1990_2016/")
+  modelfiles = list.files(dir_case, full.names = TRUE)
+  n_topics = 300
+  topic_trends = readRDS(paste0(dir_case, n_topics, "_topic_trends_lambda_100.rds"))
+  model_selected = readRDS(modelfiles[grep(paste0("/", n_topics, "topics"), modelfiles)])
+
+  
+network_data = function( topic_cooccurrence
+                                , topic_selection
+                                , link_strength_cutoff_quantile = 0.5
+) {
+  # gather information on topics for defining plotting parameters---------------------------------------
+  # v for vertices, each topic is a vertex/node in the network
+  v = data.table( # keep topic duplicate in terms of type in the first step
+                  # this allows fpr ordering topics by type (e.g. strongest trends then some other trend category)
+                  topic = as.integer(unlist(topic_selection, use.names = TRUE))
+                  ,type = unlist(lapply(names(topic_selection), function(x) {rep(x, length(topic_selection[[x]]))}))
+                  # dummy value TRUE, will be used in cast below
+                  ,value = TRUE
+                  )
+  # dcast removes duplicate entries regarding the topic numbers by creating new columns
+  v = dcast(v, topic ~ type, value.var = "value", fill = FALSE)
+  v[, primary_type := character()]
+  # use rev to overwrite associations of topics with lower ranked sets during the loop with higher ranked associations
+  for (i in   rev(names(topic_selection))) {
+    v[, primary_type:= if (eval(parse(text = i)) == TRUE) i, by = "topic"]
+  }
+  
+  # add label information
+  v[, label:= colnames(topic_cooccurrence)[v$topic]]
+
+  # prepare data for plotting ------------------------------------------------
+  # for more concise code we use the g = graph of topic cooccurrence
+  # note that in the first part of the code we use an adjacency matrix
+  # then melt it (while adding information) and finally create a graph from this data.frame
+  # vertex/edge subselection is then done based on the graph object
+  # also note that textility::topic_cooccurrence returns an upper triangle matrix 
+  # (no entires in the lower triangle!)
+  g = topic_cooccurrence[v$topic, v$topic]
+  utr = g[upper.tri(g)] # interim assignment for better code readability
+  # restrict to co-occurrence values above threshold
+  utr[utr <  quantile(utr, probs = link_strength_cutoff_quantile)] = 0
+  g[upper.tri(g)] = utr
+  # lower tri might be set to zero for common centrality measures
+  # this would simply halve the resulting values
+  # however, for not getting in any trouble regarding
+  # the typically expected symmetric matrix format during calculation, the lower triangle entries are kept
+  g[lower.tri(g)] = t(g)[lower.tri(g)]
+
+  # calc centrality scores based on adjacency matrix format
+  v[, information_centrality:= sna::infocent(g, gmode="graph")]
+  v[, betweenness_centrality:= sna::betweenness(g, gmode="graph", cmode="undirected", ignore.eval=FALSE)]
+  v[, closeness_centrality:= sna::closeness(g, gmode="graph", cmode="undirected", ignore.eval=FALSE)]
+    
+  # e for edges, each topic co-occurrence is an edge/connection in the network
+  # set lower triangle to NA values to be ignored by melt (hence, only one connection between two nodes, not two)
+  # also self connections are excluded this way
+  g[lower.tri(g, diag = TRUE)] = NA_real_ 
+  e = melt(g, na.rm = T)
+  e$Var1 = as.character(e$Var1) 
+  e$Var2 = as.character(e$Var2) 
+  names(e)[3] = "weight"
+
+  # use information of vertex type to create edge types, i.e., vertex type combinations
+  setnames(v, paste0(names(v), ".1"))
+  e = merge(e, v, by.x = "Var1", by.y = "label.1")
+  setnames(v, gsub(".1", ".2", names(v), fixed = T))
+  e = merge(e, v, by.x = "Var2", by.y = "label.2")
+  setnames(v, gsub(".2", "", names(v), fixed = T))
+
+
+  # mark type of connections/edges regarding type
+  e$e_type_selection =  mapply(function(x,y) {
+    if (x  == names(topic_selection)[1] & y  == names(topic_selection)[1]) {
+      "primary-primary"
+    } else if (x == names(topic_selection)[2] & y == names(topic_selection)[2]) {
+      "secondary-secondary"
+    } else {
+      "primary-secondary"
+    }
+  }, e$primary_type.1, e$primary_type.2, USE.NAMES = FALSE)
+  
+  # turn adjacency object into graph object for clustering 
+  # label needs to be the first column of v for this operatoin -> reorder
+  setcolorder(v, c("label", colnames(v)[-grep("^label$", colnames(v))]))
+  g = graph_from_data_frame(d = e
+                            , directed = FALSE
+                            , vertices = v)
+  
+  lv = cluster_louvain(g, weights = E(g)$weight)
+  V(g)$member_cl_lv = membership(lv)
+  E(g)$cross_cl_lv = crossing(lv, g)
+  
+  ei = cluster_leading_eigen(g, weights = E(g)$weight)
+  V(g)$member_cl_eigen = membership(ei)
+  E(g)$cross_cl_eigen = crossing(ei, g)  
+  
+  wt = cluster_walktrap(g, steps = 1, weights = E(g)$weight)
+  V(g)$member_cl_wt = membership(wt)
+  E(g)$cross_cl_wt = crossing(wt, g)
+ 
+  return(g)
+}
+
+add_network_plot_parameters = function(g
+                                  , topics_label_colors = data.table(primary_type = unique(V(g)$primary_type),
+                                                          color = c("grey25", "black"))
+                                  , quantile_edge_linetypes = data.table(qt = c( 1, 0.75, 0.25), lty = c(1, 2,3))
+                                  , centrality_color_quantile = 0.95
+                                  , infoc_edge_color = c( "grey50", "grey83", "grey96")
+                                  , primary_centrality = c("betweenness", "information", "closeness")
+                                  , v_strong_edge_quantile = 0.99
+                                  ) {
+  
+  v = igraph::as_data_frame(g, "vertices")
+  e = igraph::as_data_frame(g, "edges")
+  setDT(v)
+  setDT(e)
+
+  v = topics_label_colors[v, on =  "primary_type"]
+
+  # associate edge line type with weight
+  # if quantile has value of zero do not plot a line
+  quantile_edge_linetypes[, qt_val:= quantile(e$weight, probs = qt)][, lty:= ifelse(qt_val > 0,lty,0)]
+  e$lty = quantile_edge_linetypes[1, lty]
+  for (i in 1:nrow(quantile_edge_linetypes)) {
+   e[e$weight < quantile_edge_linetypes[i, qt_val], "lty"] = quantile_edge_linetypes[i, lty]   
+  }
+  
+  #mark edges that represent the stongest connections of individual vertices
+  e[, v_strong_edge:= weight >= quantile(weight, probs = v_strong_edge_quantile), by = "from"]
+
+    e[, information_centrality_type.1:= ifelse(information_centrality.1 >= quantile(information_centrality.1, probs =  centrality_color_quantile ), "high", "low")] 
+        e[, information_centrality_type.2:= ifelse(information_centrality.2 >= quantile(information_centrality.2, probs =  centrality_color_quantile ),"high", "low")] 
+
+  e[, betweenness_centrality_type.1:= ifelse(betweenness_centrality.1 >= quantile(betweenness_centrality.1, probs =  centrality_color_quantile ), "high", "low")] 
+    e[, betweenness_centrality_type.2:= ifelse(betweenness_centrality.2 >= quantile(betweenness_centrality.2, probs =  centrality_color_quantile ), "high", "low")] 
+  
+   e[, closeness_centrality_type.1:= ifelse(closeness_centrality.1 >= quantile(closeness_centrality.1, probs =  centrality_color_quantile ), "high", "low")]  
+      e[, closeness_centrality_type.2:= ifelse(closeness_centrality.2 >= quantile(closeness_centrality.2, probs =  centrality_color_quantile ), "high", "low")]  
+  
+  e$e_color_infoc =  mapply(function(x,y) {
+    if (x  == "high" & y == "high") {
+      infoc_edge_color[1]
+    } else if (x == "high" & y == "low" | x == "low" & y == "high") {
+       infoc_edge_color[2]
+    } else {
+      infoc_edge_color[3]
+    }
+  }, e$information_centrality_type.1, e$information_centrality_type.2, USE.NAMES = FALSE)
+  
+  e$e_color_betw =  mapply(function(x,y) {
+    if (x  == "high" & y == "high") {
+      infoc_edge_color[1]
+    } else if (x == "high" & y == "low" | x == "low" & y == "high") {
+       infoc_edge_color[2]
+    } else {
+      infoc_edge_color[3]
+    }
+  }, e$betweenness_centrality_type.1, e$betweenness_centrality_type.2, USE.NAMES = FALSE)
+  
+    
+  e$e_color_close =  mapply(function(x,y) {
+    if (x  == "high" & y == "high") {
+      infoc_edge_color[1]
+    } else if (x == "high" & y == "low" | x == "low" & y == "high") {
+       infoc_edge_color[2]
+    } else {
+      infoc_edge_color[3]
+    }
+  }, e$closeness_centrality_type.1, e$closeness_centrality_type.2, USE.NAMES = FALSE)
+  
+  if (primary_centrality == "information") {
+        e = e[with(e, order(information_centrality_type.1, information_centrality_type.2, decreasing = T)), ]
+  } else if (primary_centrality == "betweenness") {
+     e = e[with(e, order(betweenness_centrality_type.1, betweenness_centrality_type.2, decreasing = F)), ]
+  } else if (primary_centrality == "closeness") {
+    e = e[with(e, order(closeness_centrality_type.1, closeness_centrality_type.2, decreasing = T)), ]
+  }
+ 
+   
+  setcolorder(v, c("name", colnames(v)[-grep("name", colnames(v))]))
+   g = graph_from_data_frame(d = e
+                            , directed = FALSE
+                            , vertices = v)
+   return(g)
+}
+
+
+network_parameter_variations = unlist(lapply(paste0("top_topics_", c(
+                                                                        #2,5,
+                                                                        10
+                                                                        )), function(x) {
+                                        paste0(x, "_cut_", c(
+                                                              #0, 25, 
+                                                              50
+                                                              #, 75
+                                                              ))
+                                  }))
+network_variations = vector(length = length(network_parameter_variations), mode = "list")
+names(network_variations) = network_parameter_variations
+for (i in names(network_variations)) {
+   n_top_topics = as.integer( sub("(.*)(top_topics_)(\\d+)(.*)", "\\3", i, perl = T))
+   cutoff = as.numeric(sub("(.*)(cut_)(\\d+)(.*)", "\\3", i, perl = T) )/100 
+   network =   network_data(topic_cooccurrence = textility::topic_cooccurrence(model_selected, n_top_words = 5, n_top_topics = n_top_topics)  
+              , topic_selection = topic_trends$topic_selection[c("strong_positive_trend_qt", "positive_trend_all")]
+              , link_strength_cutoff_quantile =  cutoff)
+   network_variations[[i]] = network
+}
+
+
+network_variations = lapply(network_variations, function(x) {
+  add_network_plot_parameters(x, quantile_edge_linetypes = data.table(qt = c( 1, 0.975, 0.75), lty = c(1, 0,0))
+                              , primary_centrality = "betweenness"
+                              , centrality_color_quantile = 0.75
+                              ,  v_strong_edge_quantile = 0.975
+                              )
+})
+
+# initalize data collection regarding cluster membership / betweenness of different parameter variations
+g = network_variations[[1]]
+v = as.data.table(igraph::as_data_frame(g, "vertices"))
+v_info = v[, "name"]
+
+for (i in 1:length(network_variations)) {
+#initalize data collection regarding cluster membership information of different parameter variations
+g = network_variations[[i]]
+v = as.data.table(igraph::as_data_frame(g, "vertices"))
+setnames(v, "member_cl_lv",  paste0("member_cl_lv_", names(network_variations[i])))
+setnames(v, "betweenness_centrality",  paste0("betweenness_centrality", names(network_variations[i])))
+v = v[, .SD , .SDcols = c("name"
+                          , paste0("member_cl_lv_", names(network_variations[i]))
+                          , paste0("betweenness_centrality", names(network_variations[i]))
+                          )
+      ]
+v_info = v[v_info, on = "name"]
+}
+ 
+betw_cols = grep("betweenness_centrality", colnames(v_info), value =T)
+v_info_betw = v_info[, .SD, .SDcols = c("name" ,betw_cols)]
+# https://stackoverflow.com/questions/16846380/how-to-apply-same-function-to-every-specified-column-in-a-data-table
+v_info_betw[, (betw_cols):=lapply(.SD, function(x) scale_normal(x)), .SDcols = betw_cols]
+write.table(v_info_betw, paste0(dir_case,"vertex_info_betweenness.csv"), sep = ";", dec = ",")
+
+plot(sort(v_info_betw[,2][[1]]), type = "l", col = 2)
+lines(sort(v_info_betw[,3][[1]]), col = 3)
+lines(sort(v_info_betw[,4][[1]]), col = 4)
+lines(sort(v_info_betw[,5][[1]]), col = 5)
+legend(0, 0.8, names(v_info_betw)[2:5] ,col = 2:5, pch = 2)
+
+
+plot(sort(v_info_betw[,6][[1]]), type = "l", col = 2)
+lines(sort(v_info_betw[,7][[1]]), col = 3)
+lines(sort(v_info_betw[,8][[1]]), col = 4)
+lines(sort(v_info_betw[,9][[1]]), col = 5)
+legend(0, 0.8, names(v_info_betw)[6:9] ,col = 2:5, pch = 2)
+
+write.csv(v_info, paste0(dir_case,"vertex_info.csv"))
+
+for (i in 1:length(network_variations)) {
+
+g = network_variations[[i]]
+
+add_shape_circle2()
+minC = rep(-Inf, vcount(g))
+maxC = rep(Inf, vcount(g))
+maxC[1] = 0
+minC[1] = 0
+set.seed(42)
+l = layout_with_fr(g
+                     , minx=minC
+                     , maxx=maxC
+                     , miny=minC
+                     , maxy=maxC
+                     , start.temp = sqrt(vcount(g))
+                     , weights =  ifelse(E(g)$cross_cl_lv, 1, 4.5)
+  )
+pdf(paste0(dir_case, paste0(n_topics, "_network_", names(network_variations[i]) , "_betweenness_cluster_lv_edgstr_90", ".pdf")))
+lheight_default = par()$lheight
+par(lheight = .6)
+plot(g
+       , vertex.shape = "textility::circle2" #"none"
+       , vertex.frame.color = "black"
+       , vertex.frame.width = 0.1
+
+               # , vertex.size=  eigen_centrality(g)$vector*7
+      ,vertex.size = scale_normal(V(g)$betweenness_centrality)*15
+     #, vertex.size =   strength(g, vids = V(g), mode = c("all"), weights = E(g)$weight)*0.5
+     # , vertex.size= degree(g, v = V(g), mode = c("all"))/10
+     #  , vertex.size = scale_normal(eigen_centrality(g, directed = FALSE, weights = E(g)$Weight)$vector)*10
+       #, vertex.size =  scale_normal(V(g)$information_centrality)*10
+       #, vertex.size =  V(g)$betweenness_centrality*0.02
+       , vertex.color = "white" 
+       # stri_replace_all_regex( as.character(V(g)$member_cl_lv)
+       #                                          , paste0("^", unique(as.character(V(g)$member_cl_lv)), "$")
+       #                                          , rainbow( length(unique(as.character(V(g)$member_cl_lv))))
+       #                                          
+       #                                          
+       #                                          #c("skyblue", "red", "green", "orange"
+       #                                              #, "pink"
+       #                                          #    )#cluster_colors
+       #                                          , vectorize_all = F)
+       # 
+    
+          
+       , vertex.label.font=  ifelse(V(g)$color == "black", 2,1) #1
+       , vertex.label.cex =  .25
+       , vertex.label.color = V(g)$color
+        , mark.groups = split(1:vcount(g),     V(g)$member_cl_lv)
+        , mark.col = "grey90"
+       , mark.border = FALSE
+         , mark.shape = 0.5
+     #  , edge.color =   E(g)$e_color_infoc #E(g)$edge_color #"gray80" #
+      # , edge.color =   E(g)$e_color_betw
+ 
+     #,  edge.color =   ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.95), "black", "grey50")
+     # , edge.color =   E(g)$lty
+       # , edge.color = ifelse(E(g)$cross_cl_lv == TRUE, "grey20",  5)
+       , edge.color = stri_replace_all_fixed(E(g)$e_type_selection
+                                              ,c("primary-primary",  "primary-secondary", "secondary-secondary")
+                                              ,c("grey50", "grey70", "grey70")
+                                              ,vectorize_all = F
+                                              )
+        , edge.width = E(g)$weight*1.5 #  ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.9), E(g)$weight,0)
+      #  , edge.lty = ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.95), 1,0) #1# E(g)$lty
+        , edge.lty = ifelse(E(g)$v_strong_edge == TRUE & !(E(g)$e_type_selection == "primary-primary") , 1,0) 
+       # , edge.lty = 1
+       #, asp = 5/2
+       , layout = l
+       , rescale = TRUE
+       #, ...
+       # , legend_cex = 0.5
+       #                 , legend_position = "topleft" 
+       #                 , legend_pt_cex = 1.2
+       #                 , legend_text_width = 1
+  )
+par(new = TRUE)
+plot(g
+       , vertex.shape = "textility::circle2" #"none"
+       , vertex.frame.color = "black"
+       , vertex.frame.width = 0.1
+
+               # , vertex.size=  eigen_centrality(g)$vector*7
+      ,vertex.size = scale_normal(V(g)$betweenness_centrality)*15
+     #, vertex.size =   strength(g, vids = V(g), mode = c("all"), weights = E(g)$weight)*0.5
+     # , vertex.size= degree(g, v = V(g), mode = c("all"))/10
+     #  , vertex.size = scale_normal(eigen_centrality(g, directed = FALSE, weights = E(g)$Weight)$vector)*10
+       #, vertex.size =  scale_normal(V(g)$information_centrality)*10
+       #, vertex.size =  V(g)$betweenness_centrality*0.02
+       , vertex.color =# "white" 
+       stri_replace_all_regex( as.character(V(g)$member_cl_lv)
+                                                , paste0("^", unique(as.character(V(g)$member_cl_lv)), "$")
+                                                , rainbow( length(unique(as.character(V(g)$member_cl_lv))))
+
+
+                                                #c("skyblue", "red", "green", "orange"
+                                                    #, "pink"
+                                                #    )#cluster_colors
+                                                , vectorize_all = F)
+       
+
+          
+       , vertex.label.font=  ifelse(V(g)$color == "black", 2,1) #1
+       , vertex.label.cex =  .25
+       , vertex.label.color = V(g)$color
+      #  , mark.groups = split(1:vcount(g),     V(g)$member_cl_lv)
+      #  , mark.col = "grey90"
+     #  , mark.border = FALSE
+     #    , mark.shape = 0.5
+     #  , edge.color =   E(g)$e_color_infoc #E(g)$edge_color #"gray80" #
+      # , edge.color =   E(g)$e_color_betw
+ 
+     #,  edge.color =   ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.95), "black", "grey50")
+     # , edge.color =   E(g)$lty
+       # , edge.color = ifelse(E(g)$cross_cl_lv == TRUE, "grey20",  5)
+       , edge.color = stri_replace_all_fixed(E(g)$e_type_selection
+                                              ,c("primary-primary",  "primary-secondary", "secondary-secondary")
+                                              ,c("grey50", "grey70", "grey70")
+                                              ,vectorize_all = F
+                                              )
+        , edge.width = E(g)$weight*1.5 #  ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.9), E(g)$weight,0)
+      #  , edge.lty = ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.95), 1,0) #1# E(g)$lty
+        , edge.lty = ifelse(E(g)$v_strong_edge == TRUE & E(g)$e_type_selection == "primary-primary" , 1,0) 
+       # , edge.lty = 1
+       #, asp = 5/2
+       , layout = l
+       , rescale = TRUE
+       #, ...
+       # , legend_cex = 0.5
+       #                 , legend_position = "topleft" 
+       #                 , legend_pt_cex = 1.2
+       #                 , legend_text_width = 1
+  )
+
+dev.off()
+}
+
+
+#create final plot
+# top 10 topics, cutoff 50, strong edges 0.95 quantile 
+# g = network_variations[[1]]  #<<<<<<<<<<<<<set to correct index
+# saveRDS(g, paste0(dir_case, "network_top_topics_10_cut_50.rds"))
+readRDS(paste0(dir_case, "network_top_topics_10_cut_50.rds"))
+
+# final plot 1.1.19
+g = add_network_plot_parameters(g, quantile_edge_linetypes = data.table(qt = c( 1, 0.985, 0.75), lty = c(1, 0,0))
+                              , primary_centrality = "betweenness"
+                              , centrality_color_quantile = 0.95
+                              ,  v_strong_edge_quantile = 0.99
+                              )
+add_shape_circle2()
+minC = rep(-Inf, vcount(g))
+maxC = rep(Inf, vcount(g))
+maxC[1] = 0
+minC[1] = 0
+set.seed(1)
+l = layout_with_fr(g
+                     , minx=minC
+                     , maxx=maxC
+                     , miny=minC
+                     , maxy=maxC
+                     , start.temp = sqrt(vcount(g))
+                     , weights =  ifelse(E(g)$cross_cl_lv, 1, 4.1)
+  )
+pdf(paste0(dir_case, paste0(n_topics, "_network_", names(network_variations[i]) , "_betweenness_95_cluster_lv_EdgThres_985"
+                            , "_final"
+                            ,".pdf")))
+lheight_default = par()$lheight
+par(lheight = .6)
+asp = 3/2
+plot(g
+      , vertex.label = NA
+       , vertex.shape = "textility::circle2" #"none"
+       , vertex.frame.color = "black"
+       , vertex.frame.width = 0.1
+
+               # , vertex.size=  eigen_centrality(g)$vector*7
+      ,vertex.size = scale_normal(V(g)$betweenness_centrality)*15
+
+       , vertex.color = "white" 
+            , vertex.label.font=  ifelse(V(g)$color == "black", 2,1) #1
+       , vertex.label.cex =  .25
+       , vertex.label.color = V(g)$color
+        , mark.groups = split(1:vcount(g),     V(g)$member_cl_lv)
+        , mark.col = "grey95"
+       , mark.border = FALSE
+         , mark.shape = 0.5
+         , edge.color = "grey75"
+            , edge.width = E(g)$weight*1.5 #  ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.9), E(g)$weight,0)
+        , edge.lty = E(g)$lty
+          , asp = asp
+       , layout = l
+       , rescale = TRUE
+  )
+par(new = TRUE)
+plot(g
+       , vertex.shape = "textility::circle2" #"none"
+       , vertex.frame.color = "black"
+       , vertex.frame.width = 0.1
+       ,vertex.size = scale_normal(V(g)$betweenness_centrality)*15
+       # mark vertices with high betweenness
+       , vertex.color = #"white" 
+                        ifelse(V(g)$betweenness_centrality >= quantile(V(g)$betweenness_centrality, probs = 0.95)
+                               , "grey85"
+                               , "white")
+       , vertex.label.font=  ifelse(V(g)$color == "black", 2,1) #1
+       , vertex.label.cex =  .25
+       , vertex.label.color = V(g)$color
+     
+       , edge.color = stri_replace_all_fixed(E(g)$e_type_selection
+                                              ,c("primary-primary",  "primary-secondary", "secondary-secondary")
+                                              ,c("grey50", "grey50", "grey50")
+                                              ,vectorize_all = F
+                                              )
+        , edge.width = E(g)$weight*1.25 #  ifelse(E(g)$weight > quantile(E(g)$weight, probs = 0.9), E(g)$weight,0)
+          , edge.lty = ifelse( (E(g)$e_type_selection == "primary-primary" & E(g)$lty == 1) , 1,0) 
+       , asp = asp, layout = l , rescale = TRUE
+  )
+
+
+ par(lheight = lheight_default)
+  legend("topleft"
+         , legend = c("A: dummy dummy dummy dummy dummy \n dummy dummy dummy dummy dummy"
+                      , "B: dummy dummy dummy dummy dummy \n dummy dummy dummy dummy dummy"
+                      , "C: dummy dummy dummy dummy dummy \n dummy dummy dummy dummy dummy"
+                      , "D: dummy dummy dummy dummy dummy \n dummy dummy dummy dummy dummy")
+         , col = "black"
+
+         , pt.cex = 1.2
+         , text.width = 1
+         #, pch = 21
+         , cex = 0.5
+         )
+
+
+      legend("topright"
+         , legend = c("link1", "link2")
+         , col = c("grey50", "grey70")
+         , lty = 1
+         , lwd = c(1, 2)
+         )
+
+
+dev.off()
+```
