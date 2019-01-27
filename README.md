@@ -1,3 +1,4 @@
+<a href="https://zenodo.org/badge/latestdoi/118602132"><img src="https://zenodo.org/badge/118602132.svg" alt="DOI"></a>
 # textility
 Collection of miscellaneous text utility functions for text processing or text mining. Mainly wrapper functions based on existing packages (`stringi`, `text2vec`, etc.) that have emerged from my personal use to speed up or customize specific tasks.
 
