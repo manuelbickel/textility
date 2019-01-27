@@ -8,7 +8,7 @@ loess_aicc_optimized(x, independent_var = NULL,
   independent_var_range = NULL, dependent_var = NULL, groups = NULL,
   group_subset = NULL, span_interval = NULL, degree = 2,
   family = "gaussian", normalize = TRUE, confidence_interval = 0.95,
-  output = c("model"))
+  output = "model")
 }
 \arguments{
 \item{x}{A \code{data.table} with data in long format (use \code{data.table::melt} if your data is in wide format).}

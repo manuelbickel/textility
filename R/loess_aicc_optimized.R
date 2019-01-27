@@ -104,7 +104,7 @@ loess_aicc_optimized <- function(x
                                  , family = "gaussian"
                                  , normalize = TRUE
                                  , confidence_interval = 0.95
-                                 , output = c("model")) {
+                                 , output = "model") {
 
   #INPUT CHECKS
   stopifnot(!is.null(independent_var))
@@ -113,7 +113,7 @@ loess_aicc_optimized <- function(x
 
   if (is.null(span_interval)) {
     span_interval <- c(.1,.9)
-    message("No span interval specified. Interval set to c(.1, .9).")
+    message("No span interval specified in loess_aicc_optimized. Interval set to c(.1, .9).")
   }
 
   if (is.null(group_subset)) {
@@ -182,10 +182,11 @@ loess_aicc_optimized <- function(x
     fit = predict(loess_model_optimum, se=T)
     # https://stackoverflow.com/questions/22717930/how-to-get-the-confidence-intervals-for-lowess-fit-using-r
     confidence_quantile = 1-((1-confidence_interval)/2)
-    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, aicc_loess_fit:= predict(loess_model_optimum)]
-    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, aicc_loess_lwr:= fit$fit - qt(confidence_quantile,fit$df)*fit$se]
-    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, aicc_loess_upr:= fit$fit + qt(confidence_quantile,fit$df)*fit$se]
+    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, loess_aicc_fit:= predict(loess_model_optimum)]
+    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, loess_aicc_lwr:= fit$fit - qt(confidence_quantile,fit$df)*fit$se]
+    x[eval(parse(text = groups)) == g & eval(parse(text = independent_var)) %in% independent_var_range, loess_aicc_upr:= fit$fit + qt(confidence_quantile,fit$df)*fit$se]
     } else {
+    # TODO allow specification of output colnames
     y[group == g, model_aicc_loess:= list(list(loess_model_optimum))]
     }
   }

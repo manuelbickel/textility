@@ -14,7 +14,9 @@ Scale values normal with boundaries zero and one
 }
 \examples{
 scale_normal(c(0,50,100))
-#[1] 0.0 0.5 1.0
+# [1] 0.0 0.5 1.0
 scale_normal(c(1,6,11))
-#[1] 0.0 0.5 1.0
+# [1] 0.0 0.5 1.0
+scale_normal(c(3,3,3))
+# [1] 1 1 1
 }

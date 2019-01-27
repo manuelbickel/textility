@@ -2,7 +2,7 @@
 % Please edit documentation in R/p_lm.R
 \name{p_lm}
 \alias{p_lm}
-\title{Get p value of linear model}
+\title{Get p values of linear model}
 \usage{
 p_lm(model)
 }
@@ -10,10 +10,12 @@ p_lm(model)
 \item{model}{A linear model fitted via \code{lm}.}
 }
 \value{
-The p-value of the model, i.e., the overall p-value of the F-statistic (not the p-value of the individual coefficients).
+Named numeric vector containing p-values of the model, i.e., the overall p-value of the F-statistic,
+        and the p-values of the intercept and coefficients.
+        For naming convention of output see example.
 }
 \description{
-Get p value of linear model
+Get p values of linear model
 }
 \examples{
 
@@ -21,5 +23,6 @@ x = rnorm(42)
 y = x + rnorm(42)
 m = lm(y ~ x)
 p_lm(m)
-# [1] 2.783375e-09
+#      p_model  p_intercept          p_x
+# 9.010565e-11 3.330814e-01 9.010565e-11
 }

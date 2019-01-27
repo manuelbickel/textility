@@ -28,7 +28,7 @@
 #' # B 5 5 1
 #' # C 2 1 2
 
-get_cooccurrence <- function(m, binarize = TRUE, threshold = 1) {
+get_cooccurrence = function(m, binarize = TRUE, threshold = 1) {
 
   if ("simple_triplet_matrix" %in% class(m)) {
    m <- tripl_to_sparse(m)
