@@ -1,6 +1,6 @@
 <a href="https://zenodo.org/badge/latestdoi/118602132"><img src="https://zenodo.org/badge/118602132.svg" alt="DOI"></a>
 # textility
-Collection of miscellaneous text utility functions for text processing or text mining. Mainly wrapper functions based on existing packages (`stringi`, `text2vec`, etc.) that have emerged from my personal use to speed up or customize specific tasks.
+Collection of miscellaneous text utility functions for text processing or text mining. Mainly wrapper functions that have emerged from my personal use to speed up or customize specific tasks. These fucntions leverage the potential of various existing packages, especially `text2vec` as well as others such as `stringi`, etc. 
 
 Dependencies, etc. are not declared very well at the moment (depending on the use case the packages `text2vec`, `Matrix` as well as `slam`, `topicmodels`, `stm`, or `koRpus` should be installed) . Will be updated.
 
