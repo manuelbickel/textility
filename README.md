@@ -4,7 +4,10 @@ Collection of miscellaneous text utility functions for text processing or text m
 
 Dependencies, etc. are not declared very well at the moment (depending on the use case the packages `text2vec`, `Matrix` as well as `slam`, `topicmodels`, `stm`, or `koRpus` should be installed) . Will be updated.
 
-The use of the package is demonstrated in the vignette that was created to publish the following scientific article published 2019 in Energy, Sustainability and Society, DOI:  (the article was the main motivation for creating this package):
-<a href="https://link.springer.com/article/10.1186%2Fs13705-019-0226-z" title="Reflecting trends in the academic landscape of sustainable energy using probabilistic topic modeling"</a>
+The use of the package is demonstrated in the vignette that was created to publish the following scientific article (the article was the main motivation for creating this package):
+<a href="https://link.springer.com/article/10.1186%2Fs13705-019-0226-z" title="Reflecting trends in the academic landscape of sustainable energy using probabilistic topic modeling">
+Bickel, M.W. Reflecting trends in the academic landscape of sustainable energy using probabilistic topic modeling. 
+  Energ Sustain Soc 9, 49 (2019)
+  doi:10.1186/s13705-019-0226-z </a>
 
 Note: The part the work referring to calculation of coherence metrics was merged into the `text2vec` package: https://github.com/dselivanov/text2vec. Some remarks on calculating coherence metrics are just kept in the `textility` package for reasons of documentation.
